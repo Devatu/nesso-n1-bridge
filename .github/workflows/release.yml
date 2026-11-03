@@ -1,0 +1,72 @@
+# Draft release pipeline for OTA A/B artifacts.
+# PRODUCTION SIGNING IS GATED: enable the signing job only after keys exist in a
+# protected GitHub Environment with required reviewers. Do not treat unsigned
+# staging assets as production.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-host-verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tests
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File firmware/test/run_host_tests.ps1
+
+  # Arduino binary build — enable when runner has esp32 core + Nesso libs:
+  # build-firmware:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: arduino/setup-arduino-cli@v2
+  #     - name: Install core and libs
+  #       run: |
+  #         arduino-cli core update-index
+  #         arduino-cli core install esp32:esp32@3.3.12
+  #         arduino-cli lib install "Arduino_Nesso_N1@1.0.0"
+  #     - name: Compile
+  #       run: |
+  #         mkdir -p dist
+  #         arduino-cli compile --fqbn esp32:esp32:arduino_nesso_n1:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr --output-dir dist firmware/nesso_n1_bridge
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: firmware-bin
+  #         path: dist/*
+
+  publish-draft-notes:
+    needs: build-host-verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub Release (draft) with schema/example only
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            release/manifest.schema.json
+            release/manifest.example.json
+            docs/08-EERSTE-FLASH-EN-OTA.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # production-sign-and-publish:
+  #   needs: build-firmware
+  #   runs-on: ubuntu-latest
+  #   environment: production-signing
+  #   steps:
+  #     - download artifact
+  #     - compute sha256 / size
+  #     - build canonical manifest
+  #     - sign with secret OTA_PRIVATE_KEY (ECDSA P-256)
+  #     - gh release upload immutable assets
+  #     - NEVER upload private key

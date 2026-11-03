@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nesso.local/schemas/ota-manifest-v1.json",
+  "title": "Nesso N1 OTA manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "product",
+    "board",
+    "channel",
+    "version",
+    "security_version",
+    "asset_url",
+    "sha256",
+    "size_bytes",
+    "signature_algorithm",
+    "signature"
+  ],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+    "product": { "type": "string", "const": "nesso-n1-heatpump-bridge" },
+    "board": { "type": "string", "const": "arduino_nesso_n1" },
+    "channel": { "type": "string", "enum": ["stable", "staging"] },
+    "version": { "type": "string", "minLength": 1 },
+    "security_version": { "type": "integer", "minimum": 1 },
+    "asset_url": { "type": "string", "pattern": "^https://" },
+    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "size_bytes": { "type": "integer", "minimum": 1 },
+    "signature_algorithm": { "type": "string", "enum": ["ecdsa-p256", "rsa"] },
+    "signature": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

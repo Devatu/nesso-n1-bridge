@@ -1,0 +1,32 @@
+# PR checks: host unit tests. Arduino compile can be enabled once arduino-cli is cached in CI.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run host unit tests
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File firmware/test/run_host_tests.ps1
+
+  # Uncomment after confirming FQBN on a CI runner with esp32 core:
+  # arduino-compile:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: arduino/setup-arduino-cli@v2
+  #     - run: |
+  #         arduino-cli core update-index
+  #         arduino-cli core install esp32:esp32@3.3.12
+  #         arduino-cli lib install "Arduino_Nesso_N1@1.0.0"
+  #         arduino-cli compile --fqbn esp32:esp32:arduino_nesso_n1:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr firmware/nesso_n1_bridge

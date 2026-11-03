@@ -1,0 +1,15 @@
+.env
+.env.*
+*.pem
+*.key
+secrets/
+build/
+firmware/test/build/
+tools/arduino-cli/
+*.elf
+*.bin
+*.map
+.vscode/settings.json
+.DS_Store
+ota_private.pem
+ota_public.pem

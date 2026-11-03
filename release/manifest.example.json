@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "product": "nesso-n1-heatpump-bridge",
+  "board": "arduino_nesso_n1",
+  "channel": "staging",
+  "version": "0.0.2-fase0-prov",
+  "security_version": 1,
+  "asset_url": "https://github.com/ORG/REPO/releases/download/v0.0.2/nesso-n1-bridge-v0.0.2.bin",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "size_bytes": 1,
+  "signature_algorithm": "ecdsa-p256",
+  "signature": "BASE64_SIGNATURE_PLACEHOLDER"
+}
