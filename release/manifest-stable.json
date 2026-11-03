@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "product": "nesso-n1-heatpump-bridge",
+  "board": "arduino_nesso_n1",
+  "channel": "stable",
+  "version": "0.0.9-ota",
+  "security_version": 1,
+  "asset_url": "https://github.com/Devatu/nesso-n1-bridge/releases/download/v0.0.9-ota/nesso-n1-bridge-0.0.9-ota.bin",
+  "sha256": "275670DE5502E34D09B001D828142C0C22C27B394AC4D3BA140A673435F0BB9C",
+  "size_bytes": 1794912,
+  "signature_algorithm": "ecdsa-p256",
+  "signature": "OTA_TEST_PLACEHOLDER_SIGNATURE_20261103235357"
+}

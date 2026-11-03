@@ -70,9 +70,9 @@ static void draw_header(const char *title) {
   g_display.print(title ? title : "Qvantum");
 }
 
-/* Verticale labelrechts naast de groene knop (1 char per regel). */
+/* Verticale label rechts naast de groene knop (1 char per regel). */
 static void draw_vertical_label(int x, int y0, const char *text, uint16_t color) {
-  if (text == nullptr) {
+  if (text == nullptr || text[0] == '\0') {
     return;
   }
   g_display.setTextColor(color);
@@ -83,6 +83,23 @@ static void draw_vertical_label(int x, int y0, const char *text, uint16_t color)
     g_display.setCursor(x, y);
     g_display.print(ch);
     y += 12;
+  }
+}
+
+/* Knop2 boven → hint rechtsboven; knop1 rechts → verticale hint. */
+static void draw_nav_cues(const char *top_cue, const char *side_cue) {
+  g_display.setTextSize(1);
+  if (top_cue != nullptr && top_cue[0] != '\0') {
+    const int w = (int)strlen(top_cue) * 6;
+    const int x = 240 - 4 - w; /* zo ver mogelijk naar rechts */
+    g_display.setTextColor(TFT_DARKGREY);
+    g_display.setCursor(x < 0 ? 0 : x, 10);
+    g_display.print(top_cue);
+  }
+  if (side_cue != nullptr && side_cue[0] != '\0') {
+    const int n = (int)strlen(side_cue);
+    const int y0 = (135 - n * 12) / 2;
+    draw_vertical_label(228, y0 < 28 ? 28 : y0, side_cue, TFT_GREEN);
   }
 }
 #endif
@@ -198,6 +215,7 @@ void display_show_home() {
   }
   clear_screen();
   draw_header("Qvantum");
+  draw_nav_cues("^Menu", "Kies");
 
   char ip[20];
   const bool wifi_ok = wifi_sta_ip(ip, sizeof(ip));
@@ -242,9 +260,6 @@ void display_show_home() {
     g_display.setCursor(6, 62);
     g_display.print("Menu > Wi-Fi opnieuw");
   }
-  g_display.setTextColor(TFT_DARKGREY);
-  g_display.setCursor(6, 114);
-  g_display.print("K2 boven=menu  K1 rechts=kies");
 #endif
 }
 
@@ -258,14 +273,9 @@ void display_show_menu(uint8_t selected) {
   }
   clear_screen();
   draw_header("Menu");
+  draw_nav_cues("^Volgende", "Kies");
 
-  /* Knop2 zit boven: hint naast de titel. */
-  g_display.setTextColor(TFT_DARKGREY);
-  g_display.setTextSize(1);
-  g_display.setCursor(118, 10);
-  g_display.print("^Volgende");
-
-  /* 4 regels; rechtsruimte vrijhouden voor verticaal "Kies" (knop1). */
+  /* 4 regels; rechtsruimte vrijhouden voor verticaal "Kies". */
   const int window = 4;
   const int row_w = 200;
   int start = (int)selected - 1;
@@ -294,7 +304,6 @@ void display_show_menu(uint8_t selected) {
       g_display.printf("  %s", ui_menu_label(ui_menu_id_at(idx)));
     }
   }
-  draw_vertical_label(222, 42, "Kies", TFT_GREEN);
 #else
   (void)selected;
 #endif
@@ -310,6 +319,7 @@ void display_show_info() {
   g_display.setTextSize(2);
   g_display.setCursor(6, 4);
   g_display.print("Info");
+  draw_nav_cues("^Menu", "Kies");
   g_display.setTextColor(TFT_WHITE);
   g_display.setTextSize(1);
   g_display.setCursor(6, 36);
@@ -323,7 +333,6 @@ void display_show_info() {
     g_display.setCursor(6, 84);
     g_display.printf("IP %s", ip);
   }
-  footer("Knop2=menu");
 #endif
 }
 
@@ -337,18 +346,13 @@ void display_show_factory_confirm() {
   g_display.setTextSize(2);
   g_display.setCursor(6, 8);
   g_display.print("Reset?");
+  draw_nav_cues("^Nee", "Ja");
   g_display.setTextColor(TFT_WHITE);
   g_display.setTextSize(1);
   g_display.setCursor(6, 44);
   g_display.print("Wi-Fi en warmtepomp-");
   g_display.setCursor(6, 60);
   g_display.print("instellingen wissen.");
-  g_display.setCursor(6, 84);
-  g_display.setTextColor(TFT_YELLOW);
-  g_display.print("Knop1 = Ja, wissen");
-  g_display.setCursor(6, 100);
-  g_display.setTextColor(TFT_DARKGREY);
-  g_display.print("Knop2 = Annuleren");
 #endif
 }
 
@@ -362,20 +366,15 @@ void display_show_wifi_confirm() {
   g_display.setTextSize(2);
   g_display.setCursor(6, 8);
   g_display.print("Wi-Fi opnieuw?");
+  draw_nav_cues("^Nee", "Ja");
   g_display.setTextColor(TFT_WHITE);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 40);
+  g_display.setCursor(6, 44);
   g_display.print("Huidig netwerk wissen");
-  g_display.setCursor(6, 56);
+  g_display.setCursor(6, 60);
   g_display.print("en opnieuw koppelen");
-  g_display.setCursor(6, 72);
+  g_display.setCursor(6, 76);
   g_display.print("via de telefoon-app.");
-  g_display.setCursor(6, 96);
-  g_display.setTextColor(TFT_YELLOW);
-  g_display.print("Knop1 = Ja, doorgaan");
-  g_display.setCursor(6, 112);
-  g_display.setTextColor(TFT_DARKGREY);
-  g_display.print("Knop2 = Annuleren");
 #endif
 }
 
@@ -395,12 +394,13 @@ void display_show_modbus_test(uint8_t selected, const char *status) {
   g_display.setTextSize(2);
   g_display.setCursor(6, 4);
   g_display.print("Ventilatie");
+  draw_nav_cues("^Volgende", "Kies");
 
   g_display.setTextSize(1);
   for (uint8_t i = 0; i < 5; i++) {
     const int y = 28 + (int)i * 14;
     if (i == selected) {
-      g_display.fillRect(4, y - 1, 232, 13, TFT_NAVY);
+      g_display.fillRect(4, y - 1, 200, 13, TFT_NAVY);
       g_display.setTextColor(TFT_YELLOW);
       g_display.setCursor(8, y);
       g_display.print("> ");
@@ -419,8 +419,6 @@ void display_show_modbus_test(uint8_t selected, const char *status) {
     g_display.setTextColor(TFT_ORANGE);
     g_display.setCursor(6, 102);
     g_display.print(status);
-  } else {
-    footer("Knop2=volgende  Knop1=stuur");
   }
 #else
   (void)selected;
@@ -438,10 +436,6 @@ void display_show_ota(const OtaStatus *ota) {
   g_display.setTextSize(2);
   g_display.setCursor(6, 4);
   g_display.print("Software");
-  g_display.setTextColor(TFT_WHITE);
-  g_display.setTextSize(1);
-  g_display.setCursor(6, 30);
-  g_display.printf("Nu: %s", ota ? ota->current_version : "?");
 
   const bool update_ready =
       ota != nullptr && ota->availability == OTA_AVAIL_UPDATE_AVAILABLE;
@@ -449,6 +443,7 @@ void display_show_ota(const OtaStatus *ota) {
 
   if (downloading) {
     g_display.setTextColor(TFT_YELLOW);
+    g_display.setTextSize(1);
     g_display.setCursor(6, 52);
     g_display.print("Bezig met installeren…");
     g_display.setTextColor(TFT_DARKGREY);
@@ -457,6 +452,13 @@ void display_show_ota(const OtaStatus *ota) {
     footer("Niet uitschakelen");
     return;
   }
+
+  draw_nav_cues("^Menu", update_ready ? "Ja" : "Kies");
+
+  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 30);
+  g_display.printf("Nu: %s", ota ? ota->current_version : "?");
 
   const char *msg = "Nog niet gecontroleerd";
   uint16_t color = TFT_WHITE;
@@ -493,16 +495,10 @@ void display_show_ota(const OtaStatus *ota) {
   g_display.setTextColor(color);
   g_display.setCursor(6, update_ready ? 62 : 52);
   g_display.print(msg);
-
   if (update_ready) {
-    g_display.setTextColor(TFT_YELLOW);
-    g_display.setCursor(6, 86);
-    g_display.print("Knop1 (groen) = installeren");
     g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 102);
-    g_display.print("Knop2 (boven) = menu");
-  } else {
-    footer("Knop2=menu");
+    g_display.setCursor(6, 86);
+    g_display.print("Groene knop = installeren");
   }
 #else
   (void)ota;

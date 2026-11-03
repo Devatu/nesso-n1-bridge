@@ -358,10 +358,13 @@ static bool fetch_manifest_https(char *buf, size_t buflen, char *err, size_t err
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setTimeout(12000);
   http.setConnectTimeout(12000);
+  http.setReuse(false);
   if (!http.begin(client, NESSO_OTA_MANIFEST_URL)) {
     snprintf(err, errlen, "http_begin");
     return false;
   }
+  http.addHeader("Cache-Control", "no-cache");
+  http.addHeader("Pragma", "no-cache");
 
   const int code = http.GET();
   if (code <= 0) {

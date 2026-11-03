@@ -4,15 +4,15 @@
 #include <stdint.h>
 
 #define NESSO_PRODUCT_ID "nesso-n1-heatpump-bridge"
-#define NESSO_FW_VERSION "0.0.8-ota"
+#define NESSO_FW_VERSION "0.0.9-ota"
 #define NESSO_CONFIG_SCHEMA_VERSION 2
 #define NESSO_BOARD_ID "arduino_nesso_n1"
 #define NESSO_OTA_CHANNEL "stable"
 #define NESSO_SECURITY_VERSION 1
-/* Immutable per-release manifests live under GitHub Releases. Channel pointer
- * is a stable HTTPS URL (public OTA assets; never a GitHub token on device). */
+/* Channel pointer on main (bypasses GitHub Releases /latest CDN staleness).
+ * Immutable .bin assets remain on GitHub Releases; never put tokens on device. */
 #define NESSO_OTA_MANIFEST_URL \
-  "https://github.com/Devatu/nesso-n1-bridge/releases/latest/download/manifest-stable.json"
+  "https://raw.githubusercontent.com/Devatu/nesso-n1-bridge/main/release/manifest-stable.json"
 
 #define NESSO_MAX_SHELLY_SLOTS 5
 #define NESSO_MAX_ROUTER_SLOTS 8
