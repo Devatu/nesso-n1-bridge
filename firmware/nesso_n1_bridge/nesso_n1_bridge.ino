@@ -20,6 +20,7 @@ enum UiScreen {
   UI_MENU,
   UI_OTA,
   UI_INFO,
+  UI_WIFI_CONFIRM,
   UI_FACTORY_CONFIRM,
   UI_MODBUS_TEST,
   UI_BLE
@@ -99,7 +100,8 @@ static void activate_menu_item() {
     display_show_home();
     break;
   case UI_MENU_WIFI:
-    start_ble_wifi_provision(true);
+    g_screen = UI_WIFI_CONFIRM;
+    display_show_wifi_confirm();
     break;
   case UI_MENU_UPDATE:
     g_ota.availability = OTA_AVAIL_CHECKING;
@@ -216,7 +218,7 @@ void loop() {
     } else if (g_screen == UI_MODBUS_TEST) {
       g_modbus_test_index = (uint8_t)((g_modbus_test_index + 1) % 5);
       display_show_modbus_test(g_modbus_test_index, nullptr);
-    } else if (g_screen == UI_FACTORY_CONFIRM) {
+    } else if (g_screen == UI_WIFI_CONFIRM || g_screen == UI_FACTORY_CONFIRM) {
       g_screen = UI_MENU;
       display_show_menu(g_menu_index);
     } else {
@@ -232,6 +234,8 @@ void loop() {
       activate_menu_item();
     } else if (g_screen == UI_MODBUS_TEST) {
       activate_modbus_test();
+    } else if (g_screen == UI_WIFI_CONFIRM) {
+      start_ble_wifi_provision(true);
     } else if (g_screen == UI_FACTORY_CONFIRM) {
       do_factory_reset();
     } else if (g_screen == UI_HOME || g_screen == UI_OTA || g_screen == UI_INFO) {

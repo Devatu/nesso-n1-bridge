@@ -17,6 +17,7 @@ void display_show_ota(const OtaStatus *ota);
 void display_show_menu(uint8_t selected);
 void display_show_info();
 void display_show_factory_confirm();
+void display_show_wifi_confirm();
 /* index 0..3 = modes, 4 = terug; status mag nullptr zijn */
 void display_show_modbus_test(uint8_t selected, const char *status);
 

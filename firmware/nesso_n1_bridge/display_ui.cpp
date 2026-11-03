@@ -226,7 +226,9 @@ void display_show_home() {
     g_display.setCursor(6, 62);
     g_display.print("Menu > Wi-Fi opnieuw");
   }
-  footer("Knop2=menu   Knop1=kies");
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setCursor(6, 114);
+  g_display.print("K2 boven=menu  K1 rechts=kies");
 #endif
 }
 
@@ -241,8 +243,8 @@ void display_show_menu(uint8_t selected) {
   clear_screen();
   draw_header("Menu");
 
-  /* Toon 4 regels rond selectie (klein scherm). */
-  const int window = 4;
+  /* 3 regels + knopuitleg onderaan (240x135). */
+  const int window = 3;
   int start = (int)selected - 1;
   if (start < 0) {
     start = 0;
@@ -257,9 +259,9 @@ void display_show_menu(uint8_t selected) {
   g_display.setTextSize(1);
   for (int i = 0; i < window && (start + i) < (int)UI_MENU_COUNT; i++) {
     const uint8_t idx = (uint8_t)(start + i);
-    const int y = 28 + i * 18;
+    const int y = 28 + i * 16;
     if (idx == selected) {
-      g_display.fillRect(4, y - 2, 232, 16, TFT_NAVY);
+      g_display.fillRect(4, y - 2, 232, 15, TFT_NAVY);
       g_display.setTextColor(TFT_YELLOW);
       g_display.setCursor(8, y);
       g_display.printf("> %s", ui_menu_label(ui_menu_id_at(idx)));
@@ -269,7 +271,11 @@ void display_show_menu(uint8_t selected) {
       g_display.printf("  %s", ui_menu_label(ui_menu_id_at(idx)));
     }
   }
-  footer("Knop2=volgende  Knop1=kies");
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setCursor(6, 86);
+  g_display.print("Knop1 = groen, rechts: kies");
+  g_display.setCursor(6, 102);
+  g_display.print("Knop2 = bovenop: volgende");
 #else
   (void)selected;
 #endif
@@ -322,6 +328,33 @@ void display_show_factory_confirm() {
   g_display.setTextColor(TFT_YELLOW);
   g_display.print("Knop1 = Ja, wissen");
   g_display.setCursor(6, 100);
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.print("Knop2 = Annuleren");
+#endif
+}
+
+void display_show_wifi_confirm() {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+  g_display.setTextColor(TFT_ORANGE);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 8);
+  g_display.print("Wi-Fi opnieuw?");
+  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 40);
+  g_display.print("Huidig netwerk wissen");
+  g_display.setCursor(6, 56);
+  g_display.print("en opnieuw koppelen");
+  g_display.setCursor(6, 72);
+  g_display.print("via de telefoon-app.");
+  g_display.setCursor(6, 96);
+  g_display.setTextColor(TFT_YELLOW);
+  g_display.print("Knop1 = Ja, doorgaan");
+  g_display.setCursor(6, 112);
   g_display.setTextColor(TFT_DARKGREY);
   g_display.print("Knop2 = Annuleren");
 #endif
