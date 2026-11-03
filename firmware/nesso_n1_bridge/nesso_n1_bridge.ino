@@ -238,7 +238,17 @@ void loop() {
       start_ble_wifi_provision(true);
     } else if (g_screen == UI_FACTORY_CONFIRM) {
       do_factory_reset();
-    } else if (g_screen == UI_HOME || g_screen == UI_OTA || g_screen == UI_INFO) {
+    } else if (g_screen == UI_OTA) {
+      if (g_ota.availability == OTA_AVAIL_UPDATE_AVAILABLE) {
+        g_ota.state = OTA_DOWNLOAD;
+        display_show_ota(&g_ota);
+        if (!ota_apply_available(&g_ota)) {
+          display_show_ota(&g_ota);
+        }
+      } else {
+        open_menu();
+      }
+    } else if (g_screen == UI_HOME || g_screen == UI_INFO) {
       open_menu();
     }
   } else if (!key1) {

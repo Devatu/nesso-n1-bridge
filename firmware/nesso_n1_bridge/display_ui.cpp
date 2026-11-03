@@ -69,6 +69,22 @@ static void draw_header(const char *title) {
   g_display.setCursor(6, 6);
   g_display.print(title ? title : "Qvantum");
 }
+
+/* Verticale labelrechts naast de groene knop (1 char per regel). */
+static void draw_vertical_label(int x, int y0, const char *text, uint16_t color) {
+  if (text == nullptr) {
+    return;
+  }
+  g_display.setTextColor(color);
+  g_display.setTextSize(1);
+  int y = y0;
+  for (const char *p = text; *p; ++p) {
+    char ch[2] = {*p, '\0'};
+    g_display.setCursor(x, y);
+    g_display.print(ch);
+    y += 12;
+  }
+}
 #endif
 
 void display_bind_heatpump(HeatpumpConfig *hp) {
@@ -243,8 +259,15 @@ void display_show_menu(uint8_t selected) {
   clear_screen();
   draw_header("Menu");
 
-  /* 3 regels + knopuitleg onderaan (240x135). */
-  const int window = 3;
+  /* Knop2 zit boven: hint naast de titel. */
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setTextSize(1);
+  g_display.setCursor(118, 10);
+  g_display.print("^Volgende");
+
+  /* 4 regels; rechtsruimte vrijhouden voor verticaal "Kies" (knop1). */
+  const int window = 4;
+  const int row_w = 200;
   int start = (int)selected - 1;
   if (start < 0) {
     start = 0;
@@ -259,9 +282,9 @@ void display_show_menu(uint8_t selected) {
   g_display.setTextSize(1);
   for (int i = 0; i < window && (start + i) < (int)UI_MENU_COUNT; i++) {
     const uint8_t idx = (uint8_t)(start + i);
-    const int y = 28 + i * 16;
+    const int y = 32 + i * 22;
     if (idx == selected) {
-      g_display.fillRect(4, y - 2, 232, 15, TFT_NAVY);
+      g_display.fillRect(4, y - 2, row_w, 18, TFT_NAVY);
       g_display.setTextColor(TFT_YELLOW);
       g_display.setCursor(8, y);
       g_display.printf("> %s", ui_menu_label(ui_menu_id_at(idx)));
@@ -271,11 +294,7 @@ void display_show_menu(uint8_t selected) {
       g_display.printf("  %s", ui_menu_label(ui_menu_id_at(idx)));
     }
   }
-  g_display.setTextColor(TFT_DARKGREY);
-  g_display.setCursor(6, 86);
-  g_display.print("Knop1 = groen, rechts: kies");
-  g_display.setCursor(6, 102);
-  g_display.print("Knop2 = bovenop: volgende");
+  draw_vertical_label(222, 42, "Kies", TFT_GREEN);
 #else
   (void)selected;
 #endif
@@ -421,8 +440,23 @@ void display_show_ota(const OtaStatus *ota) {
   g_display.print("Software");
   g_display.setTextColor(TFT_WHITE);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 36);
+  g_display.setCursor(6, 30);
   g_display.printf("Nu: %s", ota ? ota->current_version : "?");
+
+  const bool update_ready =
+      ota != nullptr && ota->availability == OTA_AVAIL_UPDATE_AVAILABLE;
+  const bool downloading = ota != nullptr && ota->state == OTA_DOWNLOAD;
+
+  if (downloading) {
+    g_display.setTextColor(TFT_YELLOW);
+    g_display.setCursor(6, 52);
+    g_display.print("Bezig met installeren…");
+    g_display.setTextColor(TFT_DARKGREY);
+    g_display.setCursor(6, 72);
+    g_display.print("Even geduld, herstart volgt.");
+    footer("Niet uitschakelen");
+    return;
+  }
 
   const char *msg = "Nog niet gecontroleerd";
   uint16_t color = TFT_WHITE;
@@ -437,7 +471,7 @@ void display_show_ota(const OtaStatus *ota) {
       color = TFT_GREEN;
       break;
     case OTA_AVAIL_UPDATE_AVAILABLE:
-      msg = "Nieuwe versie beschikbaar";
+      msg = "Nieuwe firmware beschikbaar";
       color = TFT_YELLOW;
       break;
     case OTA_AVAIL_OFFLINE:
@@ -445,21 +479,31 @@ void display_show_ota(const OtaStatus *ota) {
       color = TFT_ORANGE;
       break;
     case OTA_AVAIL_ERROR:
-      msg = "Geen updateinfo (nog)";
+      msg = ota->last_error[0] ? ota->last_error : "Geen updateinfo (nog)";
       color = TFT_ORANGE;
       break;
     default:
       break;
     }
-    if (ota->remote_version[0] && ota->availability == OTA_AVAIL_UPDATE_AVAILABLE) {
-      g_display.setCursor(6, 52);
+    if (ota->remote_version[0] && update_ready) {
+      g_display.setCursor(6, 46);
       g_display.printf("Nieuw: %s", ota->remote_version);
     }
   }
   g_display.setTextColor(color);
-  g_display.setCursor(6, 72);
+  g_display.setCursor(6, update_ready ? 62 : 52);
   g_display.print(msg);
-  footer("Knop2=menu");
+
+  if (update_ready) {
+    g_display.setTextColor(TFT_YELLOW);
+    g_display.setCursor(6, 86);
+    g_display.print("Knop1 (groen) = installeren");
+    g_display.setTextColor(TFT_DARKGREY);
+    g_display.setCursor(6, 102);
+    g_display.print("Knop2 (boven) = menu");
+  } else {
+    footer("Knop2=menu");
+  }
 #else
   (void)ota;
 #endif
