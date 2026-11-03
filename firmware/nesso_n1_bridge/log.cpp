@@ -1,4 +1,5 @@
 #include "log.h"
+#include "log_ring.h"
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -18,10 +19,22 @@ void nesso_log(LogLevel level, const char *tag, const char *fmt, ...) {
   } else if (level == LOG_DEBUG) {
     name = "D";
   }
-  printf("%s [%s] ", name, tag);
+
+  char body[160];
   va_list args;
   va_start(args, fmt);
-  vprintf(fmt, args);
+  vsnprintf(body, sizeof(body), fmt, args);
   va_end(args);
-  printf("\n");
+
+  char line[192];
+  snprintf(line, sizeof(line), "%s [%s] %s", name, tag ? tag : "?", body);
+  log_ring_append(line);
+
+#if defined(ARDUINO) && !defined(HOST_TEST)
+  /* Geen Serial.flush(): dat blokkeert vaak USB-CDC en lijkt alsof er geen log is. */
+  Serial.println(line);
+#else
+  printf("%s\n", line);
+  fflush(stdout);
+#endif
 }

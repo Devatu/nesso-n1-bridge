@@ -119,13 +119,14 @@ Dat **is** A/B. Flash is 16 MB; bovenste ruimte blijft ongebruikt tot jullie lat
 
 ### C2. Devicegedrag (productcode)
 
-Reeds ontworpen in `ota_manager` / `ota_manifest`:
+In `ota_manager` / `ota_manifest` / portal:
 
-1. Boot + elke 24u ± jitter: HTTPS GET signed manifest.  
-2. Checks: product, board `arduino_nesso_n1`, channel, `security_version`, SHA-256, signature.  
-3. Download naar **inactive** slot (`Update` / `esp_ota_*`).  
-4. Reboot → `PENDING_VERIFY` selftest → commit of rollback.  
-5. Offline: knoppad blijft werken.
+1. Boot + elke 24u ± jitter: HTTPS GET signed manifest (`NESSO_OTA_MANIFEST_URL`).  
+2. Checks: product, board, channel, `security_version`, SHA-256, signature.  
+3. Vergelijk `version` met `NESSO_FW_VERSION` (`ota_version_cmp` / `ota_remote_is_newer`).  
+4. **Auto-pad:** nieuw → download inactive slot. **UI-pad:** alleen markeren `update_available`; download via `POST /api/ota/apply` of install-knop.  
+5. Reboot → `PENDING_VERIFY` selftest → commit of rollback.  
+6. Offline: Zigbee/Modbus blijven werken; UI toont `offline` / laatst gecontroleerd.
 
 Manifest-voorbeeldschema: `docs/02-SECURITY-OTA.md` en `release/manifest.schema.json`.
 

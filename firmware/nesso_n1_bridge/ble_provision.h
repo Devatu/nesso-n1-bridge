@@ -41,5 +41,6 @@ void ble_prov_abort(BleProvStatus *status);
 bool ble_prov_is_active(const BleProvStatus *status);
 bool ble_prov_wifi_already_provisioned();
 BleProvSecurity ble_prov_selected_security();
+void ble_prov_set_reset_on_next_begin(bool reset); /* KEY1 re-provision: wipe NVS Wi-Fi */
 
 #endif

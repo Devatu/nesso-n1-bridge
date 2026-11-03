@@ -107,8 +107,8 @@ static void test_dispatch_auth_and_dedup() {
   EXPECT(shelly_decode(&cmd, &ev), "decode");
   ev.timestamp_ms = 1000;
   DispatchOutcome o = dispatcher_handle(&reg, &dedup, &ev);
-  EXPECT(o.auth == AUTH_OK && o.result == DISPATCH_ACTION_NOT_READY && o.action == ACTION_1,
-         "authorized but registers blocked");
+  EXPECT(o.auth == AUTH_OK && o.result == DISPATCH_QUEUED && o.action == ACTION_1,
+         "authorized → ventilatie-actie");
 
   ev.timestamp_ms = 1100;
   o = dispatcher_handle(&reg, &dedup, &ev);
@@ -116,7 +116,7 @@ static void test_dispatch_auth_and_dedup() {
 
   ev.timestamp_ms = 1500;
   o = dispatcher_handle(&reg, &dedup, &ev);
-  EXPECT(o.result == DISPATCH_ACTION_NOT_READY, "accepted after window");
+  EXPECT(o.result == DISPATCH_QUEUED && o.action == ACTION_1, "accepted after window");
 
   cmd = make_cmd(&router, 1, ZCL_CLUSTER_ONOFF, ZCL_CMD_ON);
   EXPECT(shelly_decode(&cmd, &ev), "router decode");
@@ -143,10 +143,16 @@ static void test_dispatch_auth_and_dedup() {
   EXPECT(o.auth == AUTH_EVENT_IGNORED, "double ignored by policy");
 }
 
-static void test_action_table_placeholders() {
+static void test_action_table_ventilation() {
   const ActionSpec *a1 = action_for_button(1);
-  EXPECT(a1 != nullptr && a1->action == ACTION_1, "map btn1");
-  EXPECT(!action_is_ready(a1), "placeholder not ready");
+  const ActionSpec *a2 = action_for_button(2);
+  const ActionSpec *a3 = action_for_button(3);
+  const ActionSpec *a4 = action_for_button(4);
+  EXPECT(a1 != nullptr && a1->action == ACTION_1 && action_is_ready(a1), "btn1 ready");
+  EXPECT(a1->address == 68 && a1->value == 0, "btn1 → uit");
+  EXPECT(a2 != nullptr && a2->value == 3, "btn2 → gereduceerd");
+  EXPECT(a3 != nullptr && a3->value == 1, "btn3 → normaal");
+  EXPECT(a4 != nullptr && a4->value == 2, "btn4 → extra");
   EXPECT(action_for_button(0) == nullptr, "invalid button");
 }
 
@@ -166,6 +172,9 @@ static void test_heatpump_config() {
 static void test_portal_api() {
   EXPECT(portal_classify_path("GET", "/api/heatpump") == PORTAL_REQ_GET_HEATPUMP, "get hp");
   EXPECT(portal_classify_path("PUT", "/api/heatpump") == PORTAL_REQ_PUT_HEATPUMP, "put hp");
+  EXPECT(portal_classify_path("GET", "/api/ota") == PORTAL_REQ_GET_OTA, "get ota");
+  EXPECT(portal_classify_path("POST", "/api/ota/check") == PORTAL_REQ_POST_OTA_CHECK, "ota check");
+  EXPECT(portal_classify_path("POST", "/api/ota/apply") == PORTAL_REQ_POST_OTA_APPLY, "ota apply");
   EXPECT(portal_classify_path("POST", "/api/registers") == PORTAL_REQ_FORBIDDEN_REGISTERS,
          "forbid registers");
   EXPECT(portal_classify_path("POST", "/api/modbus/write") == PORTAL_REQ_FORBIDDEN_REGISTERS,
@@ -223,8 +232,63 @@ static void test_ota_manifest_policy() {
 
   OtaStatus st;
   ota_init(&st, 0);
-  EXPECT(ota_after_manifest_policy(&st, OTA_MANIFEST_OK) == OTA_DOWNLOAD, "to download");
+  EXPECT(ota_after_manifest_policy(&st, OTA_MANIFEST_OK) == OTA_VALIDATE_MANIFEST, "validate gate");
   EXPECT(ota_after_manifest_policy(&st, OTA_MANIFEST_BOARD) == OTA_ERROR, "bad board");
+}
+
+static void test_ota_version_check_and_ui() {
+  EXPECT(ota_version_cmp("0.1.0", "0.2.0") < 0, "0.1 < 0.2");
+  EXPECT(ota_version_cmp("0.2.0", "0.2.0-fase0") == 0, "numeric equal ignores suffix");
+  EXPECT(ota_version_cmp("1.0.0", "0.9.9") > 0, "1.0 > 0.9.9");
+
+  const char *same =
+      "{"
+      "\"schema\":1,"
+      "\"product\":\"nesso-n1-heatpump-bridge\","
+      "\"board\":\"arduino_nesso_n1\","
+      "\"channel\":\"stable\","
+      "\"version\":\"0.0.2-fase0-prov\","
+      "\"security_version\":1,"
+      "\"asset_url\":\"https://example.com/fw.bin\","
+      "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+      "\"size_bytes\":123456,"
+      "\"signature_algorithm\":\"ecdsa-p256\","
+      "\"signature\":\"AAAA\""
+      "}";
+  const char *newer =
+      "{"
+      "\"schema\":1,"
+      "\"product\":\"nesso-n1-heatpump-bridge\","
+      "\"board\":\"arduino_nesso_n1\","
+      "\"channel\":\"stable\","
+      "\"version\":\"0.3.0\","
+      "\"security_version\":1,"
+      "\"asset_url\":\"https://example.com/fw.bin\","
+      "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+      "\"size_bytes\":123456,"
+      "\"signature_algorithm\":\"ecdsa-p256\","
+      "\"signature\":\"AAAA\""
+      "}";
+
+  OtaStatus st;
+  ota_init(&st, 0);
+  st.auto_apply = false;
+  EXPECT(ota_ingest_manifest_json(&st, same), "ingest same");
+  EXPECT(st.availability == OTA_AVAIL_UP_TO_DATE, "up to date");
+  EXPECT(st.state == OTA_IDLE, "idle after same");
+
+  st.auto_apply = false;
+  EXPECT(ota_ingest_manifest_json(&st, newer), "ingest newer");
+  EXPECT(st.availability == OTA_AVAIL_UPDATE_AVAILABLE, "available");
+  EXPECT(strcmp(st.remote_version, "0.3.0") == 0, "remote set");
+  EXPECT(st.state == OTA_UPDATE_AVAILABLE, "wait for apply");
+
+  char json[256];
+  size_t n = portal_format_ota_json(&st, json, sizeof(json));
+  EXPECT(n > 0 && strstr(json, "\"update_available\":true") != nullptr, "ui json");
+  EXPECT(strstr(json, "0.3.0") != nullptr, "remote in json");
+
+  EXPECT(ota_apply_available(&st), "apply accepted");
 }
 
 int main() {
@@ -232,10 +296,11 @@ int main() {
   test_decoder_toggle_and_scenes();
   test_registry_limits();
   test_dispatch_auth_and_dedup();
-  test_action_table_placeholders();
+  test_action_table_ventilation();
   test_heatpump_config();
   test_portal_api();
   test_ota_manifest_policy();
+  test_ota_version_check_and_ui();
   if (g_failed != 0) {
     printf("%d test(s) failed\n", g_failed);
     return 1;

@@ -58,10 +58,24 @@ CLI-debug (ontwikkelaar): `esp_prov` — niet voor eindinstallateur.
   Lokale portal http://<device-ip>/  (LAN auth)
         ├── Heatpump IP / port / unit ID
         ├── Zigbee join 120s (service)
-        └── OTA status (geen OTA-disable)
+        └── OTA: status + knop Controleren + knop Installeren (geen OTA-disable)
 
-  OTA: boot + 24u ± jitter → signed HTTPS manifest → inactive slot → verify → reboot → commit/rollback
+  Display: KEY2 = OTA check (huidige vs remote); bij update KEY2-lang of portal Installeren
+
+  OTA check: HTTPS GET signed channel-manifest → vergelijk version/security_version met NESSO_FW_VERSION
+  Auto (boot+24u): check + auto_apply → inactive slot → verify → reboot → commit/rollback
+  UI: check zonder download; apply pas na knop
 ```
+
+### OTA API (lokaal)
+
+| Method | Pad | Gedrag |
+|---|---|---|
+| `GET` | `/api/ota` | JSON: `current`, `remote`, `availability`, `update_available` |
+| `POST` | `/api/ota/check` | Manifest ophalen + vergelijken (`ota_check_for_ui`) |
+| `POST` | `/api/ota/apply` | Download naar inactive slot als update beschikbaar |
+
+Channel-URL: `NESSO_OTA_MANIFEST_URL` (publieke Release-asset; geen GitHub-token op device).
 
 ## BLE-eisen (CRA + product)
 

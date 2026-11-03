@@ -1,14 +1,14 @@
 #include "action_table.h"
 
 /*
- * Compile-time allowlist. Registers/values remain placeholders until the
- * owner confirms the heat-pump map. Do not invent production addresses.
+ * Compile-time allowlist — Qvantum D100041 holding register 68 (Ventilation State).
+ * Zigbee-knoppen: 1→Uit(0) 2→Gereduceerd(3) 3→Normaal(1) 4→Extra(2).
  */
 static const ActionSpec k_actions[] = {
-    {ACTION_1, 1, MB_FN_UNSET, 0xFFFF, 0, false, "BLOCKED: owner must confirm ACTION_1"},
-    {ACTION_2, 2, MB_FN_UNSET, 0xFFFF, 0, false, "BLOCKED: owner must confirm ACTION_2"},
-    {ACTION_3, 3, MB_FN_UNSET, 0xFFFF, 0, false, "BLOCKED: owner must confirm ACTION_3"},
-    {ACTION_4, 4, MB_FN_UNSET, 0xFFFF, 0, false, "BLOCKED: owner must confirm ACTION_4"},
+    {ACTION_1, 1, MB_FN_WRITE_SINGLE_REGISTER, 68, 0, true, "Ventilatie uit"},
+    {ACTION_2, 2, MB_FN_WRITE_SINGLE_REGISTER, 68, 3, true, "Ventilatie gereduceerd"},
+    {ACTION_3, 3, MB_FN_WRITE_SINGLE_REGISTER, 68, 1, true, "Ventilatie normaal"},
+    {ACTION_4, 4, MB_FN_WRITE_SINGLE_REGISTER, 68, 2, true, "Ventilatie extra"},
 };
 
 const ActionSpec *action_for_button(uint8_t button) {

@@ -8,13 +8,15 @@
 #if NESSO_ENABLE_HW
 #include <WiFi.h>
 #include <WiFiProv.h>
+#include <esp_random.h>
 #endif
 
 static bool g_provisioned_flag = false;
+static bool g_reset_provisioned = false;
+static bool g_event_hooked = false;
+static BleProvStatus *g_active = nullptr;
 
 BleProvSecurity ble_prov_selected_security() {
-  /* Target Sec2 for CRA production posture when Arduino WiFiProv path is proven on Nesso.
-   * Store apps negotiate sec_ver from device; until HW proof, advertise Sec1+PoP minimum. */
 #if defined(NESSO_BLE_FORCE_SEC2) && NESSO_BLE_FORCE_SEC2
   return BLE_PROV_SEC_2_SRP;
 #else
@@ -25,6 +27,64 @@ BleProvSecurity ble_prov_selected_security() {
 bool ble_prov_wifi_already_provisioned() {
   return g_provisioned_flag;
 }
+
+void ble_prov_set_reset_on_next_begin(bool reset) {
+  g_reset_provisioned = reset;
+}
+
+#if NESSO_ENABLE_HW
+static void fill_pop(char *out, size_t out_len) {
+  if (out == nullptr || out_len < 9) {
+    return;
+  }
+  /* 8 hex chars from HW RNG — shown on display, entered in ESP BLE Provisioning app. */
+  uint32_t r0 = esp_random();
+  uint32_t r1 = esp_random();
+  snprintf(out, out_len, "%08X", (unsigned)(r0 ^ (r1 << 1)));
+}
+
+static void on_sys_event(arduino_event_t *ev) {
+  if (g_active == nullptr || ev == nullptr) {
+    return;
+  }
+  switch (ev->event_id) {
+  case ARDUINO_EVENT_PROV_START:
+    g_active->state = BLE_PROV_ACTIVE;
+    LOG_I("ble_prov", "provisioning started (BLE Sec1)");
+    break;
+  case ARDUINO_EVENT_PROV_CRED_RECV:
+    /* Do not log password. SSID length only. */
+    LOG_I("ble_prov", "credentials received (ssid_len=%u)",
+          (unsigned)strlen((const char *)ev->event_info.prov_cred_recv.ssid));
+    g_active->state = BLE_PROV_VALIDATING_STA;
+    break;
+  case ARDUINO_EVENT_PROV_CRED_FAIL:
+    LOG_E("ble_prov", "credential fail");
+    g_active->state = BLE_PROV_FAILED;
+    memset(g_active->pop, 0, sizeof(g_active->pop));
+    break;
+  case ARDUINO_EVENT_PROV_CRED_SUCCESS:
+    LOG_I("ble_prov", "credentials accepted");
+    break;
+  case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+    g_active->state = BLE_PROV_SUCCESS;
+    g_provisioned_flag = true;
+    memset(g_active->pop, 0, sizeof(g_active->pop));
+    LOG_I("ble_prov", "STA got IP — provision OK");
+    break;
+  case ARDUINO_EVENT_PROV_END:
+    LOG_I("ble_prov", "provisioning end (BLE freed)");
+    break;
+  case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+    if (g_active->state == BLE_PROV_VALIDATING_STA) {
+      LOG_W("ble_prov", "STA disconnected while validating");
+    }
+    break;
+  default:
+    break;
+  }
+}
+#endif
 
 bool ble_prov_begin(BleProvStatus *status, uint32_t now_ms) {
   if (status == nullptr) {
@@ -47,18 +107,34 @@ bool ble_prov_begin(BleProvStatus *status, uint32_t now_ms) {
 
   snprintf(status->service_name, sizeof(status->service_name), "%s", NESSO_BLE_PROV_SERVICE_PREFIX);
   snprintf(status->sec2_user, sizeof(status->sec2_user), "wifiprov");
-  /* PoP filled by HW RNG on device; placeholder until NESSO_ENABLE_HW path. Never log real PoP. */
-  snprintf(status->pop, sizeof(status->pop), "POP_PENDING");
   status->deadline_ms = now_ms + (uint32_t)NESSO_BLE_PROV_TIMEOUT_S * 1000U;
   status->state = BLE_PROV_ACTIVE;
+  g_active = status;
 
 #if NESSO_ENABLE_HW
-  LOG_I("ble_prov", "TODO: WiFiProv BLE + Sec%u + PoP; client=ESP BLE Provisioning app",
-        (unsigned)status->security);
-  /* Never beginProvision with WIFI_PROV_SECURITY_0.
-   * Sec1: WIFI_PROV_SECURITY_1 + pop
-   * Sec2: when API available — SRP username + pop; app reads sec_ver */
+  fill_pop(status->pop, sizeof(status->pop));
+
+  if (!g_event_hooked) {
+    WiFi.onEvent(on_sys_event);
+    g_event_hooked = true;
+  }
+
+  WiFi.begin(); /* no SSID — from app or NVS */
+
+  /* Explicit Sec1 — never NETWORK_PROV_SECURITY default if that resolves to 0. */
+  uint8_t uuid[16] = {0xb4, 0xdf, 0x5a, 0x1c, 0x3f, 0x6b, 0xf4, 0xbf,
+                      0xea, 0x4a, 0x82, 0x03, 0x04, 0x90, 0x1a, 0x02};
+  const bool reset = g_reset_provisioned;
+  g_reset_provisioned = false;
+
+  LOG_I("ble_prov", "WiFiProv BLE service=%s sec=1 reset=%d (PoP on display only)",
+        status->service_name, (int)reset);
+
+  WiFiProv.beginProvision(NETWORK_PROV_SCHEME_BLE, NETWORK_PROV_SCHEME_HANDLER_FREE_BLE,
+                          NETWORK_PROV_SECURITY_1, status->pop, status->service_name, nullptr, uuid,
+                          reset);
 #else
+  snprintf(status->pop, sizeof(status->pop), "POP_PENDING");
   LOG_W("ble_prov", "scaffold: BLE session for ESP BLE Provisioning app (sec=%u)",
         (unsigned)status->security);
 #endif
@@ -66,14 +142,17 @@ bool ble_prov_begin(BleProvStatus *status, uint32_t now_ms) {
 }
 
 void ble_prov_poll(BleProvStatus *status, uint32_t now_ms) {
-  if (status == nullptr || status->state == BLE_PROV_IDLE) {
+  if (status == nullptr || status->state == BLE_PROV_IDLE || status->state == BLE_PROV_SUCCESS) {
     return;
   }
   if (status->state == BLE_PROV_ACTIVE || status->state == BLE_PROV_VALIDATING_STA) {
     if (now_ms >= status->deadline_ms) {
       status->state = BLE_PROV_TIMEOUT;
-      LOG_W("ble_prov", "timeout; wipe PoP from RAM; Zigbee may resume after abort");
+      LOG_W("ble_prov", "timeout; wipe PoP from RAM");
       memset(status->pop, 0, sizeof(status->pop));
+#if NESSO_ENABLE_HW
+      WiFiProv.endProvision();
+#endif
     }
   }
 }
@@ -84,6 +163,9 @@ void ble_prov_abort(BleProvStatus *status) {
   }
   status->state = BLE_PROV_IDLE;
   memset(status->pop, 0, sizeof(status->pop));
+#if NESSO_ENABLE_HW
+  WiFiProv.endProvision();
+#endif
   LOG_I("ble_prov", "aborted; caller should Zigbee resume");
 }
 

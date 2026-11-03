@@ -47,6 +47,15 @@ PortalRequestKind portal_classify_path(const char *method, const char *path) {
   if (eq_ci_prefix(method, "POST") && strcmp(path, "/api/heatpump") == 0) {
     return PORTAL_REQ_PUT_HEATPUMP;
   }
+  if (eq_ci_prefix(method, "GET") && strcmp(path, "/api/ota") == 0) {
+    return PORTAL_REQ_GET_OTA;
+  }
+  if (eq_ci_prefix(method, "POST") && strcmp(path, "/api/ota/check") == 0) {
+    return PORTAL_REQ_POST_OTA_CHECK;
+  }
+  if (eq_ci_prefix(method, "POST") && strcmp(path, "/api/ota/apply") == 0) {
+    return PORTAL_REQ_POST_OTA_APPLY;
+  }
   return PORTAL_REQ_UNKNOWN;
 }
 
@@ -114,4 +123,8 @@ size_t portal_format_heatpump_json(const HeatpumpConfig *cfg, char *out, size_t 
                           "{\"configured\":%s,\"ipv4\":\"%s\",\"tcp_port\":%u,\"unit_id\":%u,\"label\":\"%s\"}",
                           cfg->configured ? "true" : "false", cfg->ipv4, cfg->tcp_port, cfg->unit_id,
                           cfg->label);
+}
+
+size_t portal_format_ota_json(const OtaStatus *ota, char *out, size_t out_len) {
+  return ota_format_status_json(ota, out, out_len);
 }

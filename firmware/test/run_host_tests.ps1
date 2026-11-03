@@ -8,6 +8,7 @@ $exe = Join-Path $outDir "test_host.exe"
 $sources = @(
     (Join-Path $PSScriptRoot "test_host.cpp"),
     (Join-Path $bridge "log.cpp"),
+    (Join-Path $bridge "log_ring.cpp"),
     (Join-Path $bridge "shelly_decoder.cpp"),
     (Join-Path $bridge "device_registry.cpp"),
     (Join-Path $bridge "authorization.cpp"),
@@ -21,7 +22,7 @@ $sources = @(
 )
 
 Write-Host "g++ -std=c++17 -DHOST_TEST -> $exe"
-& g++ -std=c++17 -Wall -Wextra -DHOST_TEST -I $bridge -o $exe @sources
+& g++ -std=c++17 -Wall -Wextra -DHOST_TEST -DNESSO_ENABLE_HW=0 -I $bridge -o $exe @sources
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

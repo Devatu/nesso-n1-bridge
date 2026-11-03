@@ -4,11 +4,15 @@
 #include <stdint.h>
 
 #define NESSO_PRODUCT_ID "nesso-n1-heatpump-bridge"
-#define NESSO_FW_VERSION "0.0.2-fase0-prov"
+#define NESSO_FW_VERSION "0.0.5-ota"
 #define NESSO_CONFIG_SCHEMA_VERSION 2
 #define NESSO_BOARD_ID "arduino_nesso_n1"
 #define NESSO_OTA_CHANNEL "stable"
 #define NESSO_SECURITY_VERSION 1
+/* Immutable per-release manifests live under GitHub Releases. Channel pointer
+ * is a stable HTTPS URL (public OTA assets; never a GitHub token on device). */
+#define NESSO_OTA_MANIFEST_URL \
+  "https://github.com/Devatu/nesso-n1-bridge/releases/latest/download/manifest-stable.json"
 
 #define NESSO_MAX_SHELLY_SLOTS 5
 #define NESSO_MAX_ROUTER_SLOTS 8
@@ -19,6 +23,7 @@
 #define NESSO_BLE_PROV_SECURITY_MIN 1
 #define NESSO_BLE_PROV_SECURITY_TARGET 2
 #define NESSO_BLE_PROV_SERVICE_PREFIX "PROV_NESSO"
+#define NESSO_MDNS_HOSTNAME "qvantum" /* → http://qvantum.local */
 #define NESSO_SERVICE_AP_TIMEOUT_S 600
 #define NESSO_ZIGBEE_JOIN_WINDOW_S 120
 #define NESSO_OTA_CHECK_PERIOD_S 86400
@@ -27,8 +32,14 @@
 #define NESSO_HEATPUMP_PORT_DEFAULT 502
 #define NESSO_HEATPUMP_UNIT_DEFAULT 1
 
-#ifndef NESSO_ENABLE_HW
+#ifdef HOST_TEST
+#ifdef NESSO_ENABLE_HW
+#undef NESSO_ENABLE_HW
+#endif
 #define NESSO_ENABLE_HW 0
+#endif
+#ifndef NESSO_ENABLE_HW
+#define NESSO_ENABLE_HW 1
 #endif
 
 enum ActionId {

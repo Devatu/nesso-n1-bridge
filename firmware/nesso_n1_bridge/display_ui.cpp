@@ -1,16 +1,433 @@
 #include "display_ui.h"
+#include "app_config.h"
 #include "log.h"
+#include "modbus_client.h"
+#include "wifi_manager.h"
+#include <stdio.h>
+#include <string.h>
+
+#if NESSO_ENABLE_HW
+#include <Arduino_Nesso_N1.h>
+#include <lgfx/utility/lgfx_qrcode.h>
+
+static NessoDisplay g_display;
+static bool g_ok = false;
+static HeatpumpConfig *g_hp = nullptr;
+
+/* Gedimde QR: backlight is alleen aan/uit; minder wit = minder camera-glare. */
+static const uint16_t kQrLight = 0x5ACB;
+static const uint16_t kQrDark = TFT_BLACK;
+
+static void clear_screen() {
+  g_display.fillScreen(TFT_BLACK);
+  g_display.setTextWrap(false);
+}
+
+static void draw_qr_dimmed(const char *payload, int32_t x, int32_t y, int32_t w) {
+  if (payload == nullptr || w <= 0) {
+    return;
+  }
+  for (uint8_t version = 1; version <= 40; ++version) {
+    QRCode qrcode;
+    auto *qrcodeData = (uint8_t *)alloca(lgfx_qrcode_getBufferSize(version));
+    if (0 != lgfx_qrcode_initText(&qrcode, qrcodeData, version, 0, payload)) {
+      continue;
+    }
+    const int_fast16_t thickness = w / qrcode.size;
+    if (thickness <= 0) {
+      break;
+    }
+    const int_fast16_t lineLength = qrcode.size * thickness;
+    const int_fast16_t offset = (w - lineLength) >> 1;
+
+    g_display.fillRect(x, y, w, w, kQrLight);
+    int_fast16_t dy = y + offset;
+    for (int_fast16_t iy = 0; iy < qrcode.size; ++iy) {
+      int_fast16_t dx = x + offset;
+      for (int_fast16_t ix = 0; ix < qrcode.size; ++ix) {
+        if (lgfx_qrcode_getModule(&qrcode, ix, iy)) {
+          g_display.fillRect(dx, dy, thickness, thickness, kQrDark);
+        }
+        dx += thickness;
+      }
+      dy += thickness;
+    }
+    break;
+  }
+}
+
+static void footer(const char *text) {
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 118);
+  g_display.print(text ? text : "");
+}
+
+static void draw_header(const char *title) {
+  g_display.setTextColor(TFT_CYAN);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 6);
+  g_display.print(title ? title : "Qvantum");
+}
+#endif
+
+void display_bind_heatpump(HeatpumpConfig *hp) {
+#if NESSO_ENABLE_HW
+  g_hp = hp;
+#else
+  (void)hp;
+#endif
+}
 
 bool display_begin() {
-  LOG_W("display", "TODO: NessoDisplay/M5GFX when NESSO_ENABLE_HW=1");
+#if NESSO_ENABLE_HW
+  g_ok = g_display.begin();
+  if (!g_ok) {
+    LOG_E("display", "NessoDisplay begin failed");
+    return false;
+  }
+  g_display.setRotation(1);
+  clear_screen();
+  g_display.setTextColor(TFT_CYAN);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 48);
+  g_display.print("Qvantum");
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 78);
+  g_display.print("Even geduld…");
+  LOG_I("display", "OK 240x135");
+  return true;
+#else
+  LOG_W("display", "scaffold (no panel)");
   return false;
+#endif
 }
 
 void display_show_status(const char *line) {
-  LOG_I("display", "%s", line);
+  LOG_I("display", "%s", line ? line : "");
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  display_show_home();
+  if (line && line[0]) {
+    g_display.setTextColor(TFT_YELLOW);
+    g_display.setTextSize(1);
+    g_display.setCursor(6, 118);
+    g_display.print(line);
+  }
+#else
+  (void)line;
+#endif
 }
 
 void display_show_service_qr(const char *payload) {
-  LOG_I("display", "TODO QR payload len=%u (not an auth substitute)", payload ? 0u : 0u);
-  (void)payload;
+  display_show_ble_prov(payload, nullptr);
+}
+
+void display_show_ble_prov(const char *service_name, const char *pop) {
+  LOG_I("display", "BLE setup screen + QR");
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+
+  const char *name = service_name && service_name[0] ? service_name : "PROV_NESSO";
+  const char *code = pop && pop[0] ? pop : "--------";
+
+  /* Espressif BLE Prov app QR payload (zie WiFiProv::printQR). */
+  char payload[160];
+  snprintf(payload, sizeof(payload),
+           "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"%s\",\"transport\":\"ble\"}", name, code);
+
+  /* Links: korte uitleg + code. Rechts: gedimde QR (minder glare). */
+  g_display.setTextColor(0x5ACB);
+  g_display.setTextSize(1);
+  g_display.setCursor(4, 4);
+  g_display.print("Stap 1: Wi-Fi");
+
+  g_display.setTextColor(0x8410);
+  g_display.setCursor(4, 22);
+  g_display.print("1. Open ESP BLE");
+  g_display.setCursor(4, 34);
+  g_display.print("   Provisioning");
+  g_display.setCursor(4, 50);
+  g_display.print("2. Scan QR-code");
+  g_display.setCursor(4, 66);
+  g_display.print("   of vul code in:");
+
+  g_display.setTextColor(0xC600); /* gedempt geel */
+  g_display.setTextSize(2);
+  g_display.setCursor(4, 84);
+  g_display.print(code);
+
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setTextSize(1);
+  g_display.setCursor(4, 118);
+  g_display.printf("%s", name);
+
+  draw_qr_dimmed(payload, 122, 6, 112);
+#else
+  (void)service_name;
+  (void)pop;
+#endif
+}
+
+void display_show_home() {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+  draw_header("Qvantum");
+
+  char ip[20];
+  const bool wifi_ok = wifi_sta_ip(ip, sizeof(ip));
+  const bool hp_ok = g_hp != nullptr && heatpump_config_is_ready(g_hp);
+
+  g_display.setTextSize(1);
+  if (wifi_ok) {
+    g_display.setTextColor(TFT_GREEN);
+    g_display.setCursor(6, 30);
+    g_display.print("Wi-Fi OK");
+    if (!hp_ok) {
+      g_display.setTextColor(TFT_YELLOW);
+      g_display.setCursor(6, 46);
+      g_display.print("Stap 2: open in browser");
+      g_display.setTextColor(TFT_CYAN);
+      g_display.setTextSize(2);
+      g_display.setCursor(6, 66);
+      g_display.printf("%s.local", NESSO_MDNS_HOSTNAME);
+      g_display.setTextColor(TFT_DARKGREY);
+      g_display.setTextSize(1);
+      g_display.setCursor(6, 96);
+      g_display.printf("of http://%s", ip);
+    } else {
+      g_display.setTextColor(TFT_GREEN);
+      g_display.setCursor(6, 46);
+      g_display.print("Warmtepomp: ingesteld");
+      g_display.setTextColor(TFT_WHITE);
+      g_display.setCursor(6, 64);
+      g_display.printf("%s  unit %u", g_hp->ipv4, (unsigned)g_hp->unit_id);
+      g_display.setTextColor(TFT_CYAN);
+      g_display.setCursor(6, 82);
+      g_display.printf("%s.local", NESSO_MDNS_HOSTNAME);
+      g_display.setTextColor(TFT_DARKGREY);
+      g_display.setCursor(6, 98);
+      g_display.printf("IP %s", ip);
+    }
+  } else {
+    g_display.setTextColor(TFT_ORANGE);
+    g_display.setCursor(6, 42);
+    g_display.print("Geen Wi-Fi");
+    g_display.setTextColor(TFT_WHITE);
+    g_display.setCursor(6, 62);
+    g_display.print("Menu > Wi-Fi opnieuw");
+  }
+  footer("Knop2=menu   Knop1=kies");
+#endif
+}
+
+void display_show_menu(uint8_t selected) {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  if (selected >= (uint8_t)UI_MENU_COUNT) {
+    selected = 0;
+  }
+  clear_screen();
+  draw_header("Menu");
+
+  /* Toon 4 regels rond selectie (klein scherm). */
+  const int window = 4;
+  int start = (int)selected - 1;
+  if (start < 0) {
+    start = 0;
+  }
+  if (start > (int)UI_MENU_COUNT - window) {
+    start = (int)UI_MENU_COUNT - window;
+  }
+  if (start < 0) {
+    start = 0;
+  }
+
+  g_display.setTextSize(1);
+  for (int i = 0; i < window && (start + i) < (int)UI_MENU_COUNT; i++) {
+    const uint8_t idx = (uint8_t)(start + i);
+    const int y = 28 + i * 18;
+    if (idx == selected) {
+      g_display.fillRect(4, y - 2, 232, 16, TFT_NAVY);
+      g_display.setTextColor(TFT_YELLOW);
+      g_display.setCursor(8, y);
+      g_display.printf("> %s", ui_menu_label(ui_menu_id_at(idx)));
+    } else {
+      g_display.setTextColor(TFT_WHITE);
+      g_display.setCursor(8, y);
+      g_display.printf("  %s", ui_menu_label(ui_menu_id_at(idx)));
+    }
+  }
+  footer("Knop2=volgende  Knop1=kies");
+#else
+  (void)selected;
+#endif
+}
+
+void display_show_info() {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+  g_display.setTextColor(TFT_CYAN);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 4);
+  g_display.print("Info");
+  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 36);
+  g_display.printf("FW %s", NESSO_FW_VERSION);
+  g_display.setCursor(6, 52);
+  g_display.printf("Product %s", NESSO_PRODUCT_ID);
+  g_display.setCursor(6, 68);
+  g_display.printf("Host %s.local", NESSO_MDNS_HOSTNAME);
+  char ip[20];
+  if (wifi_sta_ip(ip, sizeof(ip))) {
+    g_display.setCursor(6, 84);
+    g_display.printf("IP %s", ip);
+  }
+  footer("Knop2=menu");
+#endif
+}
+
+void display_show_factory_confirm() {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+  g_display.setTextColor(TFT_ORANGE);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 8);
+  g_display.print("Reset?");
+  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 44);
+  g_display.print("Wi-Fi en warmtepomp-");
+  g_display.setCursor(6, 60);
+  g_display.print("instellingen wissen.");
+  g_display.setCursor(6, 84);
+  g_display.setTextColor(TFT_YELLOW);
+  g_display.print("Knop1 = Ja, wissen");
+  g_display.setCursor(6, 100);
+  g_display.setTextColor(TFT_DARKGREY);
+  g_display.print("Knop2 = Annuleren");
+#endif
+}
+
+void display_show_modbus_test(uint8_t selected, const char *status) {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  /* 0 Uit, 1 Gereduceerd, 2 Normaal, 3 Extra, 4 Terug — zelfde volgorde als knoppen later */
+  static const uint16_t k_modes[] = {VENT_OFF, VENT_REDUCED, VENT_NORMAL, VENT_EXTRA};
+  if (selected > 4) {
+    selected = 4;
+  }
+
+  clear_screen();
+  g_display.setTextColor(TFT_CYAN);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 4);
+  g_display.print("Ventilatie");
+
+  g_display.setTextSize(1);
+  for (uint8_t i = 0; i < 5; i++) {
+    const int y = 28 + (int)i * 14;
+    if (i == selected) {
+      g_display.fillRect(4, y - 1, 232, 13, TFT_NAVY);
+      g_display.setTextColor(TFT_YELLOW);
+      g_display.setCursor(8, y);
+      g_display.print("> ");
+    } else {
+      g_display.setTextColor(TFT_WHITE);
+      g_display.setCursor(8, y);
+      g_display.print("  ");
+    }
+    if (i < 4) {
+      g_display.printf("%s (%u)", ventilation_mode_label(k_modes[i]), (unsigned)k_modes[i]);
+    } else {
+      g_display.print("Terug");
+    }
+  }
+  if (status && status[0]) {
+    g_display.setTextColor(TFT_ORANGE);
+    g_display.setCursor(6, 102);
+    g_display.print(status);
+  } else {
+    footer("Knop2=volgende  Knop1=stuur");
+  }
+#else
+  (void)selected;
+  (void)status;
+#endif
+}
+
+void display_show_ota(const OtaStatus *ota) {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+  g_display.setTextColor(TFT_CYAN);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 4);
+  g_display.print("Software");
+  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextSize(1);
+  g_display.setCursor(6, 36);
+  g_display.printf("Nu: %s", ota ? ota->current_version : "?");
+
+  const char *msg = "Nog niet gecontroleerd";
+  uint16_t color = TFT_WHITE;
+  if (ota != nullptr) {
+    switch (ota->availability) {
+    case OTA_AVAIL_CHECKING:
+      msg = "Bezig met controleren…";
+      color = TFT_YELLOW;
+      break;
+    case OTA_AVAIL_UP_TO_DATE:
+      msg = "Je hebt de nieuwste versie";
+      color = TFT_GREEN;
+      break;
+    case OTA_AVAIL_UPDATE_AVAILABLE:
+      msg = "Nieuwe versie beschikbaar";
+      color = TFT_YELLOW;
+      break;
+    case OTA_AVAIL_OFFLINE:
+      msg = "Geen Wi-Fi voor check";
+      color = TFT_ORANGE;
+      break;
+    case OTA_AVAIL_ERROR:
+      msg = "Geen updateinfo (nog)";
+      color = TFT_ORANGE;
+      break;
+    default:
+      break;
+    }
+    if (ota->remote_version[0] && ota->availability == OTA_AVAIL_UPDATE_AVAILABLE) {
+      g_display.setCursor(6, 52);
+      g_display.printf("Nieuw: %s", ota->remote_version);
+    }
+  }
+  g_display.setTextColor(color);
+  g_display.setCursor(6, 72);
+  g_display.print(msg);
+  footer("Knop2=menu");
+#else
+  (void)ota;
+#endif
 }

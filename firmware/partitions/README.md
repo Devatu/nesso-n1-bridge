@@ -1,40 +1,27 @@
-# Partities – OTA A/B voor Nesso N1
+# Partities - OTA A/B voor Nesso N1
 
-## Keuze voor eerste builds (aanbevolen)
+## Productbuild (huidig)
 
-Arduino IDE / CLI:
-
-- **Partition Scheme:** `Zigbee ZCZR 4MB with spiffs`  
-- Bestand in core: `zigbee_zczr.csv`
-
-Inhoud (Espressif officieel):
+Sketch gebruikt **`firmware/nesso_n1_bridge/partitions.csv`** = kopie van Espressif **`zigbee_zczr_8MB.csv`**.
 
 | Partition | Rol |
 |---|---|
-| `nvs` | Config |
-| `otadata` | Welke OTA-slot actief is |
-| `app0` (`ota_0`) | Slot A |
-| `app1` (`ota_1`) | Slot B |
-| `spiffs` | Bestanden |
-| `zb_storage` / `zb_fct` | Zigbee NVS/FAT |
-| `coredump` | Crash dumps |
+| `otadata` | Actieve OTA-slot |
+| `app0` / `ota_0` | Slot A (~3.3 MB) |
+| `app1` / `ota_1` | Slot B (~3.3 MB) |
+| `zb_storage` / `zb_fct` | Zigbee |
+| `spiffs` / `coredump` | FS / dumps |
 
-Slotgrootte ~**1.25 MB** per app. Board heeft **16 MB** flash; rest blijft ongebruikt.
+Nodig omdat **WiFiProv + Zigbee ZCZR + display** > 1.25 MB (te groot voor `zigbee_zczr` 4MB-tabel).
+
+Board heeft **16 MB** flash; deze 8 MB-layout laat bovenste helft ongebruikt.
 
 Bron:  
-https://github.com/espressif/arduino-esp32/blob/master/tools/partitions/zigbee_zczr.csv
+https://github.com/espressif/arduino-esp32/blob/master/tools/partitions/zigbee_zczr_8MB.csv
 
-## Als de app te groot wordt
-
-Kopieer **ongewijzigd** uit dezelfde Espressif-repo:
-
-- `zigbee_zczr_8MB.csv` → sketchmap als `partitions.csv`  
-- Of wacht tot Nesso-boardmenu een 8/16 MB ZCZR-optie krijgt  
-
-Geen zelfverzonnen layout zonder meting van app-grootte + `zb_storage`.
+FQBN blijft `ZigbeeMode=zczr`; upload.maximum_size in build/flash scripts = `3407872`.
 
 ## Rollback
 
-Officiële Arduino-ESP32-bootloader ondersteunt doorgaans `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`.  
 Na OTA: selftest → `esp_ota_mark_app_valid_cancel_rollback()` of rollback.  
 **Geen** eFuse anti-rollback zonder herstelplan.
