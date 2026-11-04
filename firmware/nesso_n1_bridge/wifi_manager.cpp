@@ -55,10 +55,10 @@ void wifi_sta_set_join_tx_low(bool low) {
   if (!g_sta_started) {
     return;
   }
-  /* Default ~19.5 dBm; drop to 8.5 dBm while Zigbee permit-join is loud. */
-  const wifi_power_t p = low ? WIFI_POWER_8_5dBm : WIFI_POWER_19_5dBm;
+  /* Soften Wi-Fi PA during Zigbee permit-join; keep enough link for portal. */
+  const wifi_power_t p = low ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
   if (WiFi.setTxPower(p)) {
-    LOG_I("wifi", "TX power %s", low ? "8.5 dBm (join)" : "19.5 dBm");
+    LOG_I("wifi", "TX power %s", low ? "11 dBm (join)" : "19.5 dBm");
   } else {
     LOG_W("wifi", "setTxPower failed");
   }

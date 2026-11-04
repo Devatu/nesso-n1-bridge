@@ -17,9 +17,11 @@
 #include <esp_coexist.h>
 #include <WiFi.h>
 #include "hal/brownout_ll.h"
-/* Join + Wi-Fi on C6 single-RF spikes current → BOD reset (seen as "Geen Wi-Fi"). */
+#include "bdb/esp_zigbee_bdb_commissioning.h"
+#include "nwk/esp_zigbee_nwk.h"
+/* BOD HW-reset is disabled; keep TX usable for battery remotes during join. */
 #ifndef NESSO_ZB_TX_DBM
-#define NESSO_ZB_TX_DBM 8
+#define NESSO_ZB_TX_DBM 15
 #endif
 #endif
 
@@ -37,7 +39,104 @@ static char g_last_event[48] = "";
 #if NESSO_ENABLE_HW
 /* Light EP so Shelly remotes can bind and send On/Off / Level / Scenes. */
 #define NESSO_ZB_LIGHT_EP 10
-static ZigbeeDimmableLight g_zb_light = ZigbeeDimmableLight(NESSO_ZB_LIGHT_EP);
+
+static bool try_enroll_during_join(const Eui64 *eui);
+static void set_last_event(const char *msg);
+
+/* Bind Shelly client clusters → our light EP (ZigbeeDimmableLight has empty findEndpoint). */
+class NessoShellyTargetLight : public ZigbeeDimmableLight {
+ public:
+  explicit NessoShellyTargetLight(uint8_t endpoint) : ZigbeeDimmableLight(endpoint) {}
+
+  void findEndpoint(esp_zb_zdo_match_desc_req_param_t *cmd_req) override {
+    if (cmd_req == nullptr) {
+      return;
+    }
+    /* Shelly BLU RC Button 4 ZB: On/Off is CLIENT (out-cluster). */
+    uint16_t cluster_list[] = {ESP_ZB_ZCL_CLUSTER_ID_ON_OFF};
+    esp_zb_zdo_match_desc_req_param_t req = {
+        .dst_nwk_addr = cmd_req->dst_nwk_addr,
+        .addr_of_interest = cmd_req->addr_of_interest,
+        .profile_id = ESP_ZB_AF_HA_PROFILE_ID,
+        .num_in_clusters = 0,
+        .num_out_clusters = 1,
+        .cluster_list = cluster_list,
+    };
+    LOG_I("zigbee", "match On/Off-client @ short=0x%04x", cmd_req->dst_nwk_addr);
+    esp_zb_zdo_match_cluster(&req, &NessoShellyTargetLight::findCbWrapper, this);
+  }
+
+  void bindRemoteClusters(uint16_t short_addr, const esp_zb_ieee_addr_t ieee) {
+    Eui64 eui;
+    memcpy(eui.bytes, ieee, 8);
+    if (try_enroll_during_join(&eui)) {
+      set_last_event("join: knop gezien");
+    }
+    static const uint16_t clusters[] = {
+        ESP_ZB_ZCL_CLUSTER_ID_ON_OFF,
+        ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL,
+        ESP_ZB_ZCL_CLUSTER_ID_SCENES,
+    };
+    for (uint8_t ep = 1; ep <= 4; ++ep) {
+      for (uint16_t cl : clusters) {
+        esp_zb_zdo_bind_req_param_t bind_req;
+        memset(&bind_req, 0, sizeof(bind_req));
+        memcpy(bind_req.src_address, ieee, sizeof(esp_zb_ieee_addr_t));
+        bind_req.src_endp = ep;
+        bind_req.cluster_id = cl;
+        bind_req.dst_addr_mode = ESP_ZB_ZDO_BIND_DST_ADDR_MODE_64_BIT_EXTENDED;
+        esp_zb_get_long_address(bind_req.dst_address_u.addr_long);
+        bind_req.dst_endp = (uint8_t)getEndpoint();
+        bind_req.req_dst_addr = short_addr;
+        esp_zb_zdo_device_bind_req(&bind_req, &NessoShellyTargetLight::bindCbWrapper, this);
+      }
+    }
+    /* Track as bound so enroll_from_bound_devices / UI see it. */
+    zb_device_params_t *dev = (zb_device_params_t *)malloc(sizeof(zb_device_params_t));
+    if (dev != nullptr) {
+      memset(dev, 0, sizeof(*dev));
+      dev->endpoint = 1;
+      dev->short_addr = short_addr;
+      memcpy(dev->ieee_addr, ieee, 8);
+      addBoundDevice(dev);
+    }
+    LOG_I("zigbee", "bind reqs sent short=0x%04x (EP1-4 OnOff/Level/Scenes)", short_addr);
+  }
+
+ private:
+  static void findCbWrapper(esp_zb_zdp_status_t zdo_status, uint16_t addr, uint8_t endpoint,
+                            void *user_ctx) {
+    auto *self = static_cast<NessoShellyTargetLight *>(user_ctx);
+    if (self != nullptr) {
+      self->findCb(zdo_status, addr, endpoint);
+    }
+  }
+
+  void findCb(esp_zb_zdp_status_t zdo_status, uint16_t addr, uint8_t endpoint) {
+    if (zdo_status != ESP_ZB_ZDP_STATUS_SUCCESS) {
+      LOG_W("zigbee", "no On/Off-client match (status=%d)", (int)zdo_status);
+      return;
+    }
+    esp_zb_ieee_addr_t ieee = {0};
+    if (esp_zb_ieee_address_by_short(addr, ieee) != ESP_OK) {
+      LOG_W("zigbee", "IEEE lookup failed for 0x%04x", addr);
+      return;
+    }
+    LOG_I("zigbee", "Shelly-achtig device short=0x%04x ep=%u — enroll+bind", addr, endpoint);
+    bindRemoteClusters(addr, ieee);
+  }
+
+  static void bindCbWrapper(esp_zb_zdp_status_t zdo_status, void *user_ctx) {
+    (void)user_ctx;
+    if (zdo_status == ESP_ZB_ZDP_STATUS_SUCCESS) {
+      LOG_I("zigbee", "bind OK");
+    } else {
+      LOG_W("zigbee", "bind status=%d (remote mogelijk al slapen — F&B opnieuw)", (int)zdo_status);
+    }
+  }
+};
+
+static NessoShellyTargetLight g_zb_light = NessoShellyTargetLight(NESSO_ZB_LIGHT_EP);
 static bool g_ep_ready = false;
 
 static void persist_registry() {
@@ -157,6 +256,30 @@ static void enroll_from_bound_devices() {
     Eui64 eui;
     memcpy(eui.bytes, dev->ieee_addr, 8);
     try_enroll_during_join(&eui);
+  }
+}
+
+/* Fallback: catch children that joined even if match-desc missed them. */
+static void enroll_from_neighbors() {
+  if (!join_open_now() || g_reg == nullptr) {
+    return;
+  }
+  esp_zb_nwk_info_iterator_t it = ESP_ZB_NWK_INFO_ITERATOR_INIT;
+  esp_zb_nwk_neighbor_info_t nbr;
+  while (esp_zb_nwk_get_next_neighbor(&it, &nbr) == ESP_OK) {
+    if (nbr.relationship != ESP_ZB_NWK_RELATIONSHIP_CHILD &&
+        nbr.relationship != ESP_ZB_NWK_RELATIONSHIP_UNAUTHENTICATED_CHILD) {
+      continue;
+    }
+    Eui64 eui;
+    memcpy(eui.bytes, nbr.ieee_addr, 8);
+    if (eui64_is_zero(&eui)) {
+      continue;
+    }
+    if (try_enroll_during_join(&eui)) {
+      LOG_I("zigbee", "neighbor child enrolled short=0x%04x lqi=%u", nbr.short_addr, nbr.lqi);
+      g_zb_light.bindRemoteClusters(nbr.short_addr, nbr.ieee_addr);
+    }
   }
 }
 
@@ -352,6 +475,7 @@ void zigbee_coordinator_poll() {
     LOG_I("zigbee", "join window ended");
     g_join_until_ms = 0;
 #if NESSO_ENABLE_HW
+    esp_zb_bdb_finding_binding_cancel_target(NESSO_ZB_LIGHT_EP);
     wifi_sta_set_join_tx_low(false);
     wifi_sta_set_hold_off(false);
     wifi_sta_ensure();
@@ -363,6 +487,7 @@ void zigbee_coordinator_poll() {
   if (join_open_now() && (now - last_bind_scan_ms) > 2000) {
     last_bind_scan_ms = now;
     enroll_from_bound_devices();
+    enroll_from_neighbors();
   }
 #else
   (void)0;
@@ -387,9 +512,15 @@ bool zigbee_open_join(uint8_t seconds) {
   apply_zb_tx_power();
   delay(30); /* let PA settle before permit-join beacon burst */
   Zigbee.openNetwork(seconds);
+  /* Shelly needs F&B target (or our auto-bind) after join; BDB min duration is 180s. */
+  const uint16_t fb_s =
+      (seconds < (uint8_t)ESP_ZB_BDB_MIN_COMMISSIONING_TIME) ? (uint16_t)ESP_ZB_BDB_MIN_COMMISSIONING_TIME
+                                                             : (uint16_t)seconds;
+  const esp_err_t fb = esp_zb_bdb_finding_binding_start_target(NESSO_ZB_LIGHT_EP, fb_s);
+  LOG_I("zigbee", "F&B target ep=%u %us → %d", NESSO_ZB_LIGHT_EP, (unsigned)fb_s, (int)fb);
   g_join_until_ms = millis() + (uint32_t)seconds * 1000UL;
   set_last_event("join open");
-  LOG_I("zigbee", "join open %u s — zet Shelly in pair (5× knop)", (unsigned)seconds);
+  LOG_I("zigbee", "join open %u s — Shelly: 5× knop (paars), dichtbij houden", (unsigned)seconds);
   return true;
 #else
   (void)seconds;
@@ -400,6 +531,7 @@ bool zigbee_open_join(uint8_t seconds) {
 void zigbee_close_join() {
   g_join_until_ms = 0;
 #if NESSO_ENABLE_HW
+  esp_zb_bdb_finding_binding_cancel_target(NESSO_ZB_LIGHT_EP);
   if (Zigbee.started()) {
     Zigbee.closeNetwork();
   }

@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define NESSO_PRODUCT_ID "nesso-n1-heatpump-bridge"
-#define NESSO_FW_VERSION "0.0.15-ota"
+#define NESSO_FW_VERSION "0.0.16-ota"
 #define NESSO_CONFIG_SCHEMA_VERSION 2
 #define NESSO_BOARD_ID "arduino_nesso_n1"
 #define NESSO_OTA_CHANNEL "stable"
@@ -25,7 +25,8 @@
 #define NESSO_BLE_PROV_SERVICE_PREFIX "PROV_NESSO"
 #define NESSO_MDNS_HOSTNAME "qvantum" /* → http://qvantum.local */
 #define NESSO_SERVICE_AP_TIMEOUT_S 600
-#define NESSO_ZIGBEE_JOIN_WINDOW_S 120
+/* ≥180s: BDB Finding & Binding target minimum (ESP_ZB_BDB_MIN_COMMISSIONING_TIME). */
+#define NESSO_ZIGBEE_JOIN_WINDOW_S 180
 #define NESSO_OTA_CHECK_PERIOD_S 86400
 #define NESSO_OTA_JITTER_MAX_S 900
 #define NESSO_PORTAL_SESSION_TIMEOUT_S 600

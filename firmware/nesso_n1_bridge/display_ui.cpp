@@ -418,16 +418,16 @@ void display_show_zigbee() {
     g_display.printf("Join open: %us", (unsigned)zigbee_join_remaining_s());
     g_display.setTextColor(TFT_DARKGREY);
     g_display.setCursor(6, 82);
-    g_display.print("Shelly: 5× knop = pair");
+    g_display.print("Shelly: 5x knop (paars LED)");
     g_display.setCursor(6, 98);
-    g_display.print("Blijf hier tot join klaar is");
+    g_display.print("Dichtbij houden; groen=OK");
   } else {
     g_display.setTextColor(TFT_GREEN);
     g_display.setCursor(6, 64);
     g_display.print("Netwerk dicht (veilig)");
     g_display.setTextColor(TFT_DARKGREY);
     g_display.setCursor(6, 82);
-    g_display.print("Kies = 120s join openen");
+    g_display.printf("Kies = %ds join openen", NESSO_ZIGBEE_JOIN_WINDOW_S);
   }
 #else
 #endif

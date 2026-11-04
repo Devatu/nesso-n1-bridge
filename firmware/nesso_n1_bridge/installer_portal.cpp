@@ -122,7 +122,9 @@ static void send_home() {
   html += "<section><strong>Stap 3 — Zigbee-knoppen</strong>";
   html += "<p class=muted id=zbstatus>Laden…</p>";
   html += "<ol><li>Klik “Join openen (120s)”</li>";
-  html += "<li>Op de Shelly: 5× snel drukken (pairing)</li>";
+  html += "<li>Shelly dicht bij Nesso: 5× snel drukken (paarse LED = Zigbee pair)</li>";
+  html += "<li>Groen = gelukt, rood = opnieuw (dichtbij + batterij OK)</li>";
+  html += "<li>Daarna 1× drukken; knop verschijnt hier automatisch</li>";
   html += "<li>Apparaten verschijnen hier (max 5)</li></ol>";
   html += "<button class=secondary type=button onclick=\"zbJoin()\">Join openen (120s)</button>";
   html += "<button class=secondary type=button onclick=\"zbRefresh()\">Status vernieuwen</button>";
