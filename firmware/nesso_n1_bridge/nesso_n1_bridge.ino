@@ -14,6 +14,7 @@
 #if NESSO_ENABLE_HW
 #include <Arduino_Nesso_N1.h>
 #include <esp_system.h>
+#include "hal/brownout_ll.h"
 #endif
 
 enum UiScreen {
@@ -188,6 +189,11 @@ void setup() {
   delay(200);
   Serial.println("=== Nesso serial ready ===");
 #if NESSO_ENABLE_HW
+  /* USB-powered Nesso: RF current spikes falsely trip BOD → reboot → "Geen Wi-Fi". */
+  brownout_ll_ana_reset_enable(false);
+  brownout_ll_reset_config(false, 0x3ff, BROWNOUT_RESET_LEVEL_SYSTEM);
+  brownout_ll_intr_enable(false);
+  brownout_ll_bod_enable(false);
   LOG_W("app", "reset_reason=%d", (int)esp_reset_reason());
 #endif
   LOG_I("app", "boot %s schema=%u hw=%d", NESSO_FW_VERSION, NESSO_CONFIG_SCHEMA_VERSION,

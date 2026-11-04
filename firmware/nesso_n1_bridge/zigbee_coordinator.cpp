@@ -16,6 +16,11 @@
 #include "Zigbee.h"
 #include <esp_coexist.h>
 #include <WiFi.h>
+#include "hal/brownout_ll.h"
+/* Join + Wi-Fi on C6 single-RF spikes current → BOD reset (seen as "Geen Wi-Fi"). */
+#ifndef NESSO_ZB_TX_DBM
+#define NESSO_ZB_TX_DBM 8
+#endif
 #endif
 
 static DeviceRegistry *g_reg = nullptr;
@@ -48,6 +53,24 @@ static void set_last_event(const char *msg) {
   }
   snprintf(g_last_event, sizeof(g_last_event), "%s", msg);
 }
+
+#if NESSO_ENABLE_HW
+/* Soften BOD so a brief RF current dip does not hard-reset the chip. */
+static void soften_brownout_for_rf() {
+  brownout_ll_ana_reset_enable(false);
+  brownout_ll_reset_config(false, 0x3ff, BROWNOUT_RESET_LEVEL_SYSTEM);
+  brownout_ll_intr_enable(false);
+  brownout_ll_bod_enable(false);
+  LOG_I("zigbee", "brownout HW-reset disabled (USB/RF spike mitigation)");
+}
+
+static void apply_zb_tx_power() {
+  esp_zb_set_tx_power((int8_t)NESSO_ZB_TX_DBM);
+  int8_t got = 0;
+  esp_zb_get_tx_power(&got);
+  LOG_I("zigbee", "TX power set %d dBm (readback %d)", (int)NESSO_ZB_TX_DBM, (int)got);
+}
+#endif
 
 static bool join_open_now() {
   if (g_join_until_ms == 0) {
@@ -257,6 +280,8 @@ static void zigbee_start_task(void *arg) {
   g_start_pending = false;
   g_start_failed = false;
   g_start_task_launched = false;
+  soften_brownout_for_rf();
+  apply_zb_tx_power();
   set_last_event("coordinator aan");
   LOG_I("zigbee", "coordinator up; shellys=%d wifi=%d",
         g_reg ? registry_shelly_count(g_reg) : 0, wifi_sta_connected() ? 1 : 0);
@@ -327,6 +352,7 @@ void zigbee_coordinator_poll() {
     LOG_I("zigbee", "join window ended");
     g_join_until_ms = 0;
 #if NESSO_ENABLE_HW
+    wifi_sta_set_join_tx_low(false);
     wifi_sta_set_hold_off(false);
     wifi_sta_ensure();
 #endif
@@ -356,6 +382,10 @@ bool zigbee_open_join(uint8_t seconds) {
     return false;
   }
   wifi_sta_set_hold_off(true); /* stop Wi-Fi reconnect thrash during pairing */
+  soften_brownout_for_rf();
+  wifi_sta_set_join_tx_low(true);
+  apply_zb_tx_power();
+  delay(30); /* let PA settle before permit-join beacon burst */
   Zigbee.openNetwork(seconds);
   g_join_until_ms = millis() + (uint32_t)seconds * 1000UL;
   set_last_event("join open");
@@ -373,6 +403,7 @@ void zigbee_close_join() {
   if (Zigbee.started()) {
     Zigbee.closeNetwork();
   }
+  wifi_sta_set_join_tx_low(false);
   wifi_sta_set_hold_off(false);
   wifi_sta_ensure(); /* restore STA gently after pairing window */
 #endif

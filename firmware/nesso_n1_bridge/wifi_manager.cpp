@@ -50,6 +50,23 @@ void wifi_sta_set_hold_off(bool hold_off) {
   LOG_I("wifi", "hold-off %s (Zigbee join)", hold_off ? "ON" : "OFF");
 }
 
+void wifi_sta_set_join_tx_low(bool low) {
+#if NESSO_ENABLE_HW
+  if (!g_sta_started) {
+    return;
+  }
+  /* Default ~19.5 dBm; drop to 8.5 dBm while Zigbee permit-join is loud. */
+  const wifi_power_t p = low ? WIFI_POWER_8_5dBm : WIFI_POWER_19_5dBm;
+  if (WiFi.setTxPower(p)) {
+    LOG_I("wifi", "TX power %s", low ? "8.5 dBm (join)" : "19.5 dBm");
+  } else {
+    LOG_W("wifi", "setTxPower failed");
+  }
+#else
+  (void)low;
+#endif
+}
+
 void wifi_sta_poll() {
 #if NESSO_ENABLE_HW
   if (wifi_sta_connected()) {

@@ -12,6 +12,8 @@ bool wifi_sta_ensure();
 /* Harder reconnect (disconnect+begin). Avoid during Zigbee join. */
 bool wifi_sta_reconnect();
 void wifi_sta_set_hold_off(bool hold_off); /* true = don't auto-reconnect (e.g. Zigbee join) */
+/* Lower STA TX during Zigbee join to cut dual-radio current spikes (C6 single RF). */
+void wifi_sta_set_join_tx_low(bool low);
 bool wifi_sta_ip(char *out, size_t out_len);
 bool wifi_has_saved_network();
 void wifi_erase_credentials();
