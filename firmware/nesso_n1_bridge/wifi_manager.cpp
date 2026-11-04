@@ -25,8 +25,8 @@ bool wifi_sta_begin() {
     const esp_err_t e = esp_coex_wifi_i154_enable();
     g_coex_on = (e == ESP_OK);
     LOG_I("wifi", "esp_coex_wifi_i154_enable → %d", (int)e);
-    /* Prefer Wi-Fi for portal/OTA stability; Zigbee join temporarily overrides. */
-    esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+    /* Keep balance — switching prefer at runtime coincided with device reboot during join. */
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
   }
   if (!g_sta_started) {
     WiFi.persistent(true);
@@ -45,16 +45,9 @@ bool wifi_sta_begin() {
 
 void wifi_sta_set_hold_off(bool hold_off) {
   g_hold_off = hold_off;
-#if NESSO_ENABLE_HW
-  if (hold_off) {
-    /* Give 802.15.4 more RF time while pairing (mapped via BT prefer bucket). */
-    esp_coex_preference_set(ESP_COEX_PREFER_BT);
-    LOG_I("wifi", "hold-off ON (Zigbee join) — no auto-reconnect");
-  } else {
-    esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
-    LOG_I("wifi", "hold-off OFF — Wi-Fi preferred again");
-  }
-#endif
+  /* Alleen reconnect onderdrukken. Geen esp_coex_preference_set hier:
+   * PREFER_BT tijdens join leidde tot reboot (video: Join open → Even geduld). */
+  LOG_I("wifi", "hold-off %s (Zigbee join)", hold_off ? "ON" : "OFF");
 }
 
 void wifi_sta_poll() {

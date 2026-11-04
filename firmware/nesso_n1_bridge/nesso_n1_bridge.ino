@@ -13,6 +13,7 @@
 
 #if NESSO_ENABLE_HW
 #include <Arduino_Nesso_N1.h>
+#include <esp_system.h>
 #endif
 
 enum UiScreen {
@@ -186,6 +187,9 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("=== Nesso serial ready ===");
+#if NESSO_ENABLE_HW
+  LOG_W("app", "reset_reason=%d", (int)esp_reset_reason());
+#endif
   LOG_I("app", "boot %s schema=%u hw=%d", NESSO_FW_VERSION, NESSO_CONFIG_SCHEMA_VERSION,
         NESSO_ENABLE_HW);
 
