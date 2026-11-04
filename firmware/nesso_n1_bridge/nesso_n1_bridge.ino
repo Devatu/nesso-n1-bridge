@@ -53,6 +53,9 @@ static void start_ble_wifi_provision(bool reset_creds) {
   LOG_I("app", "Wi-Fi provision via BLE");
   zigbee_pause();
   portal_stop();
+  wifi_sta_set_hold_off(true);
+  /* C6 single RF: give Zigbee stack time to release before BLE advertises. */
+  delay(500);
   ble_prov_set_reset_on_next_begin(reset_creds);
   if (ble_prov_begin(&g_ble, millis())) {
     g_service_mode = true;
@@ -60,6 +63,7 @@ static void start_ble_wifi_provision(bool reset_creds) {
     g_screen = UI_BLE;
     display_show_ble_prov(g_ble.service_name, g_ble.pop);
   } else {
+    wifi_sta_set_hold_off(false);
     g_screen = UI_HOME;
     display_show_status("Wi-Fi koppelen mislukt");
     zigbee_resume();
@@ -67,7 +71,9 @@ static void start_ble_wifi_provision(bool reset_creds) {
 }
 
 static void start_normal_services() {
-  /* Wi-Fi first; Zigbee starts later in poll() after STA is up + coex enable. */
+  /* Wi-Fi first; Zigbee starts later in poll() after STA is up + coex enable.
+   * Only call after BLE PROV_END — earlier Zigbee kills the app success ACK. */
+  wifi_sta_set_hold_off(false);
   wifi_sta_begin();
   if (heatpump_config_is_ready(&g_store.heatpump)) {
     modbus_set_target(&g_store.heatpump);
@@ -184,6 +190,28 @@ static void poll_modbus_ui_result() {
   display_show_modbus_test(g_modbus_test_index, line);
 }
 
+#if NESSO_ENABLE_HW
+/* AW32001 power-path: USB + batterij parallel zodat RF-spikes USB niet laten dippen. */
+static NessoBattery g_battery;
+
+static void nesso_power_init() {
+  /* Charge 256 mA, 4.2 V; WD uit; Hi-Z uit (USB→SYS). */
+  g_battery.begin(256, 4200, NessoBattery::UVLO_2580mV, 4520, 0);
+  g_battery.enableCharge();
+  g_battery.setShipMode(false);
+  g_battery.setHiZ(false);
+  g_battery.setIinLimitCurrent(500);     /* max USB-in */
+  g_battery.setDischargeCurrent(2000);   /* batterij mag ~2 A bijvullen bij RF */
+  const float v = g_battery.getVoltage();
+  const uint16_t pct = g_battery.getChargeLevel();
+  const int st = (int)g_battery.getChargeStatus();
+  LOG_I("power", "battery charge ON V=%.2f pct=%u chg_st=%d (0=off 2=chg 3=full)", v, pct, st);
+  if (v < 3.3f && v > 0.5f) {
+    LOG_W("power", "accu laag — even aan USB laten laden vóór Zigbee-join");
+  }
+}
+#endif
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -195,6 +223,7 @@ void setup() {
   brownout_ll_intr_enable(false);
   brownout_ll_bod_enable(false);
   LOG_W("app", "reset_reason=%d", (int)esp_reset_reason());
+  nesso_power_init(); /* vóór display/Wi-Fi/Zigbee — accu als buffer */
 #endif
   LOG_I("app", "boot %s schema=%u hw=%d", NESSO_FW_VERSION, NESSO_CONFIG_SCHEMA_VERSION,
         NESSO_ENABLE_HW);
@@ -261,9 +290,9 @@ void loop() {
     } else if (g_screen == UI_ZIGBEE) {
       if (zigbee_join_is_open()) {
         zigbee_close_join();
-      } else {
+      } else if (zigbee_join_ready()) {
         zigbee_open_join((uint8_t)NESSO_ZIGBEE_JOIN_WINDOW_S);
-      }
+      } /* anders: nog aan het starten — knop negeren */
       display_show_zigbee();
     } else if (g_screen == UI_WIFI_CONFIRM) {
       start_ble_wifi_provision(true);
@@ -313,7 +342,7 @@ void loop() {
       last_home_draw_ms = now;
       display_show_home(); /* ook zonder Wi-Fi, zodat status klopt */
     }
-    if (g_screen == UI_ZIGBEE && (now - last_zb_draw_ms) > 1000) {
+    if (g_screen == UI_ZIGBEE && (now - last_zb_draw_ms) > 2500) {
       last_zb_draw_ms = now;
       display_show_zigbee();
     }

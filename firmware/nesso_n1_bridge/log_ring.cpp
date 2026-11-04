@@ -2,8 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
-static const size_t kLines = 48;
-static const size_t kLineLen = 160;
+/* Groter tijdens knop-debug — portal /api/logs toont meer history. */
+static const size_t kLines = 120;
+static const size_t kLineLen = 180;
 static char g_lines[kLines][kLineLen];
 static size_t g_head = 0;
 static size_t g_count = 0;

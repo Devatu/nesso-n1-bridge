@@ -91,3 +91,15 @@ int registry_shelly_count(const DeviceRegistry *reg) {
   }
   return n;
 }
+
+int registry_shelly_index(const DeviceRegistry *reg, const Eui64 *eui) {
+  if (reg == nullptr || eui == nullptr || eui64_is_zero(eui)) {
+    return -1;
+  }
+  for (int i = 0; i < NESSO_MAX_SHELLY_SLOTS; ++i) {
+    if (reg->shelly[i].occupied && eui64_equal(&reg->shelly[i].eui, eui)) {
+      return i;
+    }
+  }
+  return -1;
+}

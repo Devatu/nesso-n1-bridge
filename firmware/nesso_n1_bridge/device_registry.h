@@ -24,5 +24,7 @@ bool registry_remove_router(DeviceRegistry *reg, const Eui64 *eui);
 bool registry_is_authorized_shelly(const DeviceRegistry *reg, const Eui64 *eui);
 bool registry_is_router(const DeviceRegistry *reg, const Eui64 *eui);
 int registry_shelly_count(const DeviceRegistry *reg);
+/* 0-based slot index, or -1 if not enrolled. */
+int registry_shelly_index(const DeviceRegistry *reg, const Eui64 *eui);
 
 #endif

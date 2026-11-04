@@ -12,6 +12,31 @@ static bool set_event(ButtonEvent *out, const ZclIncoming *cmd, uint8_t button, 
   return true;
 }
 
+/*
+ * Shelly BLU RC Button 4 ZB — default On/Off mode (factory):
+ *   EP1 ON  → knop 1,  EP1 OFF → knop 2
+ *   EP2 ON  → knop 3,  EP2 OFF → knop 4
+ * Toggle mode: TOGGLE op EP k → knop k
+ * Scenes: RecallScene op EP k → knop k (double/triple/long)
+ */
+static uint8_t button_from_onoff(uint8_t src_ep, uint8_t command) {
+  if (command == ZCL_CMD_TOGGLE) {
+    return src_ep;
+  }
+  if (src_ep >= 1 && src_ep <= 2 &&
+      (command == ZCL_CMD_ON || command == ZCL_CMD_OFF)) {
+    return (uint8_t)((src_ep - 1) * 2 + (command == ZCL_CMD_ON ? 1 : 2));
+  }
+  return src_ep;
+}
+
+static uint8_t button_from_hold(uint8_t src_ep, uint8_t step_mode) {
+  if (src_ep >= 1 && src_ep <= 2) {
+    return (uint8_t)((src_ep - 1) * 2 + (step_mode == ZCL_STEP_DOWN ? 2 : 1));
+  }
+  return src_ep;
+}
+
 bool shelly_decode(const ZclIncoming *cmd, ButtonEvent *out) {
   if (cmd == nullptr || out == nullptr) {
     return false;
@@ -21,44 +46,17 @@ bool shelly_decode(const ZclIncoming *cmd, ButtonEvent *out) {
   }
 
   if (cmd->cluster == ZCL_CLUSTER_ONOFF) {
-    if (cmd->command == ZCL_CMD_TOGGLE) {
-      return set_event(out, cmd, cmd->src_endpoint, BUTTON_KIND_SINGLE);
-    }
-    if (cmd->command == ZCL_CMD_ON) {
-      if (cmd->src_endpoint == 1) {
-        return set_event(out, cmd, 1, BUTTON_KIND_SINGLE);
-      }
-      if (cmd->src_endpoint == 2) {
-        return set_event(out, cmd, 3, BUTTON_KIND_SINGLE);
-      }
-      return false;
-    }
-    if (cmd->command == ZCL_CMD_OFF) {
-      if (cmd->src_endpoint == 1) {
-        return set_event(out, cmd, 2, BUTTON_KIND_SINGLE);
-      }
-      if (cmd->src_endpoint == 2) {
-        return set_event(out, cmd, 4, BUTTON_KIND_SINGLE);
-      }
-      return false;
+    if (cmd->command == ZCL_CMD_TOGGLE || cmd->command == ZCL_CMD_ON ||
+        cmd->command == ZCL_CMD_OFF) {
+      return set_event(out, cmd, button_from_onoff(cmd->src_endpoint, cmd->command),
+                       BUTTON_KIND_SINGLE);
     }
     return false;
   }
 
   if (cmd->cluster == ZCL_CLUSTER_LEVEL && cmd->command == ZCL_CMD_STEP) {
-    if (cmd->src_endpoint == 1 && cmd->step_mode == ZCL_STEP_UP) {
-      return set_event(out, cmd, 1, BUTTON_KIND_HOLD);
-    }
-    if (cmd->src_endpoint == 1 && cmd->step_mode == ZCL_STEP_DOWN) {
-      return set_event(out, cmd, 2, BUTTON_KIND_HOLD);
-    }
-    if (cmd->src_endpoint == 2 && cmd->step_mode == ZCL_STEP_UP) {
-      return set_event(out, cmd, 3, BUTTON_KIND_HOLD);
-    }
-    if (cmd->src_endpoint == 2 && cmd->step_mode == ZCL_STEP_DOWN) {
-      return set_event(out, cmd, 4, BUTTON_KIND_HOLD);
-    }
-    return false;
+    return set_event(out, cmd, button_from_hold(cmd->src_endpoint, cmd->step_mode),
+                     BUTTON_KIND_HOLD);
   }
 
   if (cmd->cluster == ZCL_CLUSTER_SCENES && cmd->command == ZCL_CMD_RECALL_SCENE) {

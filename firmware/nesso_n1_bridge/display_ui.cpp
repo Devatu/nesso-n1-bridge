@@ -14,13 +14,28 @@
 static NessoDisplay g_display;
 static bool g_ok = false;
 static HeatpumpConfig *g_hp = nullptr;
+static bool g_home_drawn = false;
+static bool g_zb_drawn = false;
+static char g_home_sig[96];
+static char g_zb_sig[128];
 
-/* Gedimde QR: backlight is alleen aan/uit; minder wit = minder camera-glare. */
-static const uint16_t kQrLight = 0x5ACB;
-static const uint16_t kQrDark = TFT_BLACK;
+/* Palette (RGB565) — teal accent, rustige contrasten op 240×135. */
+static const uint16_t kBg = 0x0841;       /* diep grafiet */
+static const uint16_t kAccent = 0x2BB7;   /* teal */
+static const uint16_t kText = 0xEF7D;     /* soft white */
+static const uint16_t kMuted = 0x8410;    /* grijs */
+static const uint16_t kOk = 0x2E0A;       /* groen */
+static const uint16_t kWarn = 0xFDC0;     /* amber */
+static const uint16_t kDanger = 0xF28A;   /* soft red-orange */
+static const uint16_t kSelBg = 0x196A;    /* selectievlak */
+static const uint16_t kLine = 0x2104;     /* hairline */
+static const uint16_t kQrLight = 0x4A69;
+static const uint16_t kQrDark = kBg;
 
 static void clear_screen() {
-  g_display.fillScreen(TFT_BLACK);
+  g_home_drawn = false;
+  g_zb_drawn = false;
+  g_display.fillScreen(kBg);
   g_display.setTextWrap(false);
 }
 
@@ -58,17 +73,24 @@ static void draw_qr_dimmed(const char *payload, int32_t x, int32_t y, int32_t w)
 }
 
 static void footer(const char *text) {
-  g_display.setTextColor(TFT_DARKGREY);
+  g_display.drawFastHLine(6, 112, 210, kLine);
+  g_display.setTextColor(kMuted);
   g_display.setTextSize(1);
   g_display.setCursor(6, 118);
   g_display.print(text ? text : "");
 }
 
+static void draw_status_dot(int x, int y, uint16_t color) {
+  g_display.fillCircle(x, y, 3, color);
+}
+
 static void draw_header(const char *title) {
-  g_display.setTextColor(TFT_CYAN);
+  g_display.fillRect(0, 0, 3, 135, kAccent);
+  g_display.setTextColor(kAccent);
   g_display.setTextSize(2);
-  g_display.setCursor(6, 6);
+  g_display.setCursor(10, 6);
   g_display.print(title ? title : "Qvantum");
+  g_display.drawFastHLine(10, 26, 200, kLine);
 }
 
 /* Verticale label rechts naast de groene knop (1 char per regel). */
@@ -92,15 +114,15 @@ static void draw_nav_cues(const char *top_cue, const char *side_cue) {
   g_display.setTextSize(1);
   if (top_cue != nullptr && top_cue[0] != '\0') {
     const int w = (int)strlen(top_cue) * 6;
-    const int x = 240 - 4 - w; /* zo ver mogelijk naar rechts */
-    g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(x < 0 ? 0 : x, 10);
+    const int x = 240 - 6 - w;
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(x < 10 ? 10 : x, 8);
     g_display.print(top_cue);
   }
   if (side_cue != nullptr && side_cue[0] != '\0') {
     const int n = (int)strlen(side_cue);
     const int y0 = (135 - n * 12) / 2;
-    draw_vertical_label(228, y0 < 28 ? 28 : y0, side_cue, TFT_GREEN);
+    draw_vertical_label(228, y0 < 30 ? 30 : y0, side_cue, kAccent);
   }
 }
 #endif
@@ -122,14 +144,15 @@ bool display_begin() {
   }
   g_display.setRotation(1);
   clear_screen();
-  g_display.setTextColor(TFT_CYAN);
+  g_display.fillRect(0, 0, 3, 135, kAccent);
+  g_display.setTextColor(kAccent);
   g_display.setTextSize(2);
-  g_display.setCursor(6, 48);
+  g_display.setCursor(14, 44);
   g_display.print("Qvantum");
-  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setTextColor(kMuted);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 78);
-  g_display.print("Even geduld…");
+  g_display.setCursor(14, 72);
+  g_display.print("Nesso start…");
   LOG_I("display", "OK 240x135");
   return true;
 #else
@@ -146,9 +169,9 @@ void display_show_status(const char *line) {
   }
   display_show_home();
   if (line && line[0]) {
-    g_display.setTextColor(TFT_YELLOW);
+    g_display.setTextColor(kWarn);
     g_display.setTextSize(1);
-    g_display.setCursor(6, 118);
+    g_display.setCursor(10, 118);
     g_display.print(line);
   }
 #else
@@ -176,33 +199,46 @@ void display_show_ble_prov(const char *service_name, const char *pop) {
   snprintf(payload, sizeof(payload),
            "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"%s\",\"transport\":\"ble\"}", name, code);
 
-  /* Links: korte uitleg + code. Rechts: gedimde QR (minder glare). */
-  g_display.setTextColor(0x5ACB);
+  /* Links tekstkolom (~118px), rechts QR — tekst mag QR niet overlappen. */
+  const int qr_x = 130;
+  const int qr_w = 104;
+  const int text_max_x = qr_x - 6;
+
+  g_display.fillRect(0, 0, 3, 135, kAccent);
+  g_display.setTextColor(kAccent);
   g_display.setTextSize(1);
-  g_display.setCursor(4, 4);
-  g_display.print("Stap 1: Wi-Fi");
+  g_display.setCursor(10, 6);
+  g_display.print("Stap 1 · Wi-Fi");
 
-  g_display.setTextColor(0x8410);
-  g_display.setCursor(4, 22);
-  g_display.print("1. Open ESP BLE");
-  g_display.setCursor(4, 34);
-  g_display.print("   Provisioning");
-  g_display.setCursor(4, 50);
-  g_display.print("2. Scan QR-code");
-  g_display.setCursor(4, 66);
-  g_display.print("   of vul code in:");
+  g_display.setTextColor(kMuted);
+  g_display.setCursor(10, 24);
+  g_display.print("1. Open BLE Prov");
+  g_display.setCursor(10, 38);
+  g_display.print("2. Scan QR / code");
 
-  g_display.setTextColor(0xC600); /* gedempt geel */
+  g_display.setTextColor(kWarn);
   g_display.setTextSize(2);
-  g_display.setCursor(4, 84);
+  g_display.setCursor(10, 58);
+  /* PoP max ~8 chars @ size 2 blijft links van QR. */
   g_display.print(code);
 
-  g_display.setTextColor(TFT_DARKGREY);
+  g_display.setTextColor(kMuted);
   g_display.setTextSize(1);
-  g_display.setCursor(4, 118);
-  g_display.printf("%s", name);
+  g_display.setCursor(10, 118);
+  /* Naam inkorten zodat die niet onder de QR doorloopt. */
+  int max_chars = (text_max_x - 10) / 6;
+  if (max_chars > 16) {
+    max_chars = 16;
+  }
+  if (max_chars > 2 && (int)strlen(name) > max_chars) {
+    char short_name[20];
+    snprintf(short_name, sizeof(short_name), "%.*s..", max_chars - 2, name);
+    g_display.print(short_name);
+  } else {
+    g_display.print(name);
+  }
 
-  draw_qr_dimmed(payload, 122, 6, 112);
+  draw_qr_dimmed(payload, qr_x, 10, qr_w);
 #else
   (void)service_name;
   (void)pop;
@@ -214,52 +250,64 @@ void display_show_home() {
   if (!g_ok) {
     return;
   }
-  clear_screen();
-  draw_header("Qvantum");
-  draw_nav_cues("^Menu", "Kies");
-
   char ip[20];
   const bool wifi_ok = wifi_sta_ip(ip, sizeof(ip));
   const bool hp_ok = g_hp != nullptr && heatpump_config_is_ready(g_hp);
+  char sig[96];
+  snprintf(sig, sizeof(sig), "%d|%s|%d|%s|%u", wifi_ok ? 1 : 0, wifi_ok ? ip : "-", hp_ok ? 1 : 0,
+           (hp_ok && g_hp) ? g_hp->ipv4 : "-", (hp_ok && g_hp) ? (unsigned)g_hp->unit_id : 0u);
+  if (g_home_drawn && strncmp(sig, g_home_sig, sizeof(g_home_sig)) == 0) {
+    return; /* geen fillScreen-flicker als er niets veranderde */
+  }
+  strncpy(g_home_sig, sig, sizeof(g_home_sig) - 1);
+  g_home_sig[sizeof(g_home_sig) - 1] = '\0';
+
+  clear_screen();
+  g_home_drawn = true;
+  draw_header("Qvantum");
+  draw_nav_cues("^Menu", "Kies");
 
   g_display.setTextSize(1);
   if (wifi_ok) {
-    g_display.setTextColor(TFT_GREEN);
-    g_display.setCursor(6, 30);
-    g_display.print("Wi-Fi OK");
+    draw_status_dot(14, 38, kOk);
+    g_display.setTextColor(kOk);
+    g_display.setCursor(22, 34);
+    g_display.print("Wi-Fi verbonden");
     if (!hp_ok) {
-      g_display.setTextColor(TFT_YELLOW);
-      g_display.setCursor(6, 46);
-      g_display.print("Stap 2: open in browser");
-      g_display.setTextColor(TFT_CYAN);
+      g_display.setTextColor(kWarn);
+      g_display.setCursor(10, 52);
+      g_display.print("Stap 2 · open in browser");
+      g_display.setTextColor(kAccent);
       g_display.setTextSize(2);
-      g_display.setCursor(6, 66);
+      g_display.setCursor(10, 70);
       g_display.printf("%s.local", NESSO_MDNS_HOSTNAME);
-      g_display.setTextColor(TFT_DARKGREY);
+      g_display.setTextColor(kMuted);
       g_display.setTextSize(1);
-      g_display.setCursor(6, 96);
+      g_display.setCursor(10, 98);
       g_display.printf("of http://%s", ip);
     } else {
-      g_display.setTextColor(TFT_GREEN);
-      g_display.setCursor(6, 46);
-      g_display.print("Warmtepomp: ingesteld");
-      g_display.setTextColor(TFT_WHITE);
-      g_display.setCursor(6, 64);
-      g_display.printf("%s  unit %u", g_hp->ipv4, (unsigned)g_hp->unit_id);
-      g_display.setTextColor(TFT_CYAN);
-      g_display.setCursor(6, 82);
+      draw_status_dot(14, 56, kOk);
+      g_display.setTextColor(kOk);
+      g_display.setCursor(22, 52);
+      g_display.print("Warmtepomp OK");
+      g_display.setTextColor(kText);
+      g_display.setCursor(10, 70);
+      g_display.printf("%s  · unit %u", g_hp->ipv4, (unsigned)g_hp->unit_id);
+      g_display.setTextColor(kAccent);
+      g_display.setCursor(10, 86);
       g_display.printf("%s.local", NESSO_MDNS_HOSTNAME);
-      g_display.setTextColor(TFT_DARKGREY);
-      g_display.setCursor(6, 98);
+      g_display.setTextColor(kMuted);
+      g_display.setCursor(10, 102);
       g_display.printf("IP %s", ip);
     }
   } else {
-    g_display.setTextColor(TFT_ORANGE);
-    g_display.setCursor(6, 42);
+    draw_status_dot(14, 48, kWarn);
+    g_display.setTextColor(kWarn);
+    g_display.setCursor(22, 44);
     g_display.print("Geen Wi-Fi");
-    g_display.setTextColor(TFT_WHITE);
-    g_display.setCursor(6, 62);
-    g_display.print("Menu > Wi-Fi opnieuw");
+    g_display.setTextColor(kText);
+    g_display.setCursor(10, 66);
+    g_display.print("Menu → Wi-Fi opnieuw");
   }
 #endif
 }
@@ -293,16 +341,17 @@ void display_show_menu(uint8_t selected) {
   g_display.setTextSize(1);
   for (int i = 0; i < window && (start + i) < (int)UI_MENU_COUNT; i++) {
     const uint8_t idx = (uint8_t)(start + i);
-    const int y = 32 + i * 22;
+    const int y = 34 + i * 20;
     if (idx == selected) {
-      g_display.fillRect(4, y - 2, row_w, 18, TFT_NAVY);
-      g_display.setTextColor(TFT_YELLOW);
-      g_display.setCursor(8, y);
-      g_display.printf("> %s", ui_menu_label(ui_menu_id_at(idx)));
+      g_display.fillRoundRect(8, y - 3, row_w, 18, 3, kSelBg);
+      g_display.fillRect(8, y - 3, 3, 18, kAccent);
+      g_display.setTextColor(kAccent);
+      g_display.setCursor(16, y);
+      g_display.printf("%s", ui_menu_label(ui_menu_id_at(idx)));
     } else {
-      g_display.setTextColor(TFT_WHITE);
-      g_display.setCursor(8, y);
-      g_display.printf("  %s", ui_menu_label(ui_menu_id_at(idx)));
+      g_display.setTextColor(kText);
+      g_display.setCursor(16, y);
+      g_display.printf("%s", ui_menu_label(ui_menu_id_at(idx)));
     }
   }
 #else
@@ -316,23 +365,23 @@ void display_show_info() {
     return;
   }
   clear_screen();
-  g_display.setTextColor(TFT_CYAN);
-  g_display.setTextSize(2);
-  g_display.setCursor(6, 4);
-  g_display.print("Info");
+  draw_header("Info");
   draw_nav_cues("^Menu", "Kies");
-  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextColor(kText);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 36);
-  g_display.printf("FW %s", NESSO_FW_VERSION);
-  g_display.setCursor(6, 52);
-  g_display.printf("Product %s", NESSO_PRODUCT_ID);
-  g_display.setCursor(6, 68);
-  g_display.printf("Host %s.local", NESSO_MDNS_HOSTNAME);
+  g_display.setCursor(10, 36);
+  g_display.printf("FW  %s", NESSO_FW_VERSION);
+  g_display.setTextColor(kMuted);
+  g_display.setCursor(10, 52);
+  g_display.printf("%s", NESSO_PRODUCT_ID);
+  g_display.setTextColor(kAccent);
+  g_display.setCursor(10, 72);
+  g_display.printf("%s.local", NESSO_MDNS_HOSTNAME);
   char ip[20];
   if (wifi_sta_ip(ip, sizeof(ip))) {
-    g_display.setCursor(6, 84);
-    g_display.printf("IP %s", ip);
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(10, 88);
+    g_display.printf("IP  %s", ip);
   }
 #endif
 }
@@ -343,17 +392,17 @@ void display_show_factory_confirm() {
     return;
   }
   clear_screen();
-  g_display.setTextColor(TFT_ORANGE);
-  g_display.setTextSize(2);
-  g_display.setCursor(6, 8);
-  g_display.print("Reset?");
+  draw_header("Reset?");
   draw_nav_cues("^Nee", "Ja");
-  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextColor(kWarn);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 44);
-  g_display.print("Wi-Fi en warmtepomp-");
-  g_display.setCursor(6, 60);
+  g_display.setCursor(10, 40);
+  g_display.print("Wi-Fi + warmtepomp");
+  g_display.setCursor(10, 56);
   g_display.print("instellingen wissen.");
+  g_display.setTextColor(kMuted);
+  g_display.setCursor(10, 80);
+  g_display.print("Kan niet ongedaan.");
 #endif
 }
 
@@ -363,18 +412,16 @@ void display_show_wifi_confirm() {
     return;
   }
   clear_screen();
-  g_display.setTextColor(TFT_ORANGE);
-  g_display.setTextSize(2);
-  g_display.setCursor(6, 8);
-  g_display.print("Wi-Fi opnieuw?");
+  draw_header("Wi-Fi?");
   draw_nav_cues("^Nee", "Ja");
-  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextColor(kText);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 44);
+  g_display.setCursor(10, 40);
   g_display.print("Huidig netwerk wissen");
-  g_display.setCursor(6, 60);
+  g_display.setCursor(10, 56);
   g_display.print("en opnieuw koppelen");
-  g_display.setCursor(6, 76);
+  g_display.setTextColor(kMuted);
+  g_display.setCursor(10, 80);
   g_display.print("via de telefoon-app.");
 #endif
 }
@@ -384,50 +431,68 @@ void display_show_zigbee() {
   if (!g_ok) {
     return;
   }
-  clear_screen();
-  g_display.setTextColor(TFT_CYAN);
-  g_display.setTextSize(2);
-  g_display.setCursor(6, 4);
-  g_display.print("Zigbee");
-
   const bool joining = zigbee_join_is_open();
-  /* Tijdens join: geen ^Menu — per ongeluk wegdrukken breekt pairing. */
-  draw_nav_cues(joining ? "^Wacht" : "^Menu", joining ? "Stop" : "Kies");
+  const bool wifi_ok = wifi_sta_connected();
+  const bool zb_run = zigbee_is_running();
+  const bool join_ready = zigbee_join_ready();
+  const int shelly_n = zigbee_shelly_count();
+  const unsigned join_s = joining ? (unsigned)zigbee_join_remaining_s() : 0u;
+  const unsigned join_bucket = (join_s / 5u) * 5u; /* minder fillScreen tijdens join */
+  const char *ev = zigbee_last_event();
+  char sig[128];
+  snprintf(sig, sizeof(sig), "%d|%d|%d|%d|%d|%u|%s", joining ? 1 : 0, wifi_ok ? 1 : 0,
+           zb_run ? 1 : 0, join_ready ? 1 : 0, shelly_n, join_bucket, (ev && ev[0]) ? ev : "-");
+  if (g_zb_drawn && strncmp(sig, g_zb_sig, sizeof(g_zb_sig)) == 0) {
+    return;
+  }
+  strncpy(g_zb_sig, sig, sizeof(g_zb_sig) - 1);
+  g_zb_sig[sizeof(g_zb_sig) - 1] = '\0';
 
-  g_display.setTextSize(1);
-  g_display.setTextColor(TFT_WHITE);
-  g_display.setCursor(6, 32);
-  g_display.printf("Gekoppeld: %d / %d", zigbee_shelly_count(), NESSO_MAX_SHELLY_SLOTS);
+  clear_screen();
+  g_zb_drawn = true;
+  draw_header("Zigbee");
 
-  g_display.setCursor(6, 46);
-  if (wifi_sta_connected()) {
-    g_display.setTextColor(TFT_GREEN);
-    g_display.print("Wi-Fi OK");
+  if (!join_ready) {
+    draw_nav_cues("^Menu", "Wacht");
   } else {
-    g_display.setTextColor(TFT_ORANGE);
-    g_display.print(joining ? "Wi-Fi even weg (join door)" : "Geen Wi-Fi");
+    draw_nav_cues(joining ? "^Wacht" : "^Menu", joining ? "Stop" : "Join");
   }
 
-  if (!zigbee_is_running()) {
-    g_display.setTextColor(TFT_ORANGE);
-    g_display.setCursor(6, 64);
-    g_display.print("Radio uit of gepauzeerd");
+  g_display.setTextSize(1);
+  g_display.setTextColor(kText);
+  g_display.setCursor(10, 34);
+  g_display.printf("Knoppen  %d / %d", shelly_n, NESSO_MAX_SHELLY_SLOTS);
+
+  draw_status_dot(14, 54, wifi_ok ? kOk : kWarn);
+  g_display.setTextColor(wifi_ok ? kOk : kWarn);
+  g_display.setCursor(22, 50);
+  g_display.print(wifi_ok ? "Wi-Fi OK" : (joining ? "Wi-Fi even weg" : "Geen Wi-Fi"));
+
+  if (!join_ready) {
+    g_display.setTextColor(kWarn);
+    g_display.setCursor(10, 70);
+    g_display.print("Radio start…");
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(10, 86);
+    g_display.print("Join daarna · 5× paars");
   } else if (joining) {
-    g_display.setTextColor(TFT_YELLOW);
-    g_display.setCursor(6, 64);
-    g_display.printf("Join open: %us", (unsigned)zigbee_join_remaining_s());
-    g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 82);
-    g_display.print("Shelly: 5x knop (paars LED)");
-    g_display.setCursor(6, 98);
-    g_display.print("Dichtbij houden; groen=OK");
+    g_display.setTextColor(kWarn);
+    g_display.setCursor(10, 70);
+    g_display.printf("Join open · %us", join_s);
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(10, 86);
+    g_display.print("5× pair, dan 1× bind");
   } else {
-    g_display.setTextColor(TFT_GREEN);
-    g_display.setCursor(6, 64);
-    g_display.print("Netwerk dicht (veilig)");
-    g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 82);
-    g_display.printf("Kies = %ds join openen", NESSO_ZIGBEE_JOIN_WINDOW_S);
+    g_display.setTextColor(kOk);
+    g_display.setCursor(10, 70);
+    g_display.print("Netwerk dicht");
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(10, 86);
+    g_display.printf("Join = %ds open", NESSO_ZIGBEE_JOIN_WINDOW_S);
+  }
+
+  if (ev != nullptr && ev[0] != '\0') {
+    footer(ev);
   }
 #else
 #endif
@@ -445,34 +510,30 @@ void display_show_modbus_test(uint8_t selected, const char *status) {
   }
 
   clear_screen();
-  g_display.setTextColor(TFT_CYAN);
-  g_display.setTextSize(2);
-  g_display.setCursor(6, 4);
-  g_display.print("Ventilatie");
+  draw_header("Ventilatie");
   draw_nav_cues("^Volgende", "Kies");
 
   g_display.setTextSize(1);
   for (uint8_t i = 0; i < 5; i++) {
-    const int y = 28 + (int)i * 14;
+    const int y = 32 + (int)i * 14;
     if (i == selected) {
-      g_display.fillRect(4, y - 1, 200, 13, TFT_NAVY);
-      g_display.setTextColor(TFT_YELLOW);
-      g_display.setCursor(8, y);
-      g_display.print("> ");
+      g_display.fillRoundRect(8, y - 2, 200, 13, 2, kSelBg);
+      g_display.fillRect(8, y - 2, 3, 13, kAccent);
+      g_display.setTextColor(kAccent);
+      g_display.setCursor(16, y);
     } else {
-      g_display.setTextColor(TFT_WHITE);
-      g_display.setCursor(8, y);
-      g_display.print("  ");
+      g_display.setTextColor(kText);
+      g_display.setCursor(16, y);
     }
     if (i < 4) {
-      g_display.printf("%s (%u)", ventilation_mode_label(k_modes[i]), (unsigned)k_modes[i]);
+      g_display.printf("%s", ventilation_mode_label(k_modes[i]));
     } else {
       g_display.print("Terug");
     }
   }
   if (status && status[0]) {
-    g_display.setTextColor(TFT_ORANGE);
-    g_display.setCursor(6, 102);
+    g_display.setTextColor(kWarn);
+    g_display.setCursor(10, 108);
     g_display.print(status);
   }
 #else
@@ -487,72 +548,70 @@ void display_show_ota(const OtaStatus *ota) {
     return;
   }
   clear_screen();
-  g_display.setTextColor(TFT_CYAN);
-  g_display.setTextSize(2);
-  g_display.setCursor(6, 4);
-  g_display.print("Software");
+  draw_header("Software");
 
   const bool update_ready =
       ota != nullptr && ota->availability == OTA_AVAIL_UPDATE_AVAILABLE;
   const bool downloading = ota != nullptr && ota->state == OTA_DOWNLOAD;
 
   if (downloading) {
-    g_display.setTextColor(TFT_YELLOW);
+    g_display.setTextColor(kWarn);
     g_display.setTextSize(1);
-    g_display.setCursor(6, 52);
+    g_display.setCursor(10, 48);
     g_display.print("Bezig met installeren…");
-    g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 72);
-    g_display.print("Even geduld, herstart volgt.");
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(10, 68);
+    g_display.print("Herstart volgt.");
     footer("Niet uitschakelen");
     return;
   }
 
   draw_nav_cues("^Menu", update_ready ? "Ja" : "Kies");
 
-  g_display.setTextColor(TFT_WHITE);
+  g_display.setTextColor(kMuted);
   g_display.setTextSize(1);
-  g_display.setCursor(6, 30);
-  g_display.printf("Nu: %s", ota ? ota->current_version : "?");
+  g_display.setCursor(10, 34);
+  g_display.printf("Nu  %s", ota ? ota->current_version : "?");
 
   const char *msg = "Nog niet gecontroleerd";
-  uint16_t color = TFT_WHITE;
+  uint16_t color = kText;
   if (ota != nullptr) {
     switch (ota->availability) {
     case OTA_AVAIL_CHECKING:
       msg = "Bezig met controleren…";
-      color = TFT_YELLOW;
+      color = kWarn;
       break;
     case OTA_AVAIL_UP_TO_DATE:
-      msg = "Je hebt de nieuwste versie";
-      color = TFT_GREEN;
+      msg = "Je hebt de nieuwste";
+      color = kOk;
       break;
     case OTA_AVAIL_UPDATE_AVAILABLE:
-      msg = "Nieuwe firmware beschikbaar";
-      color = TFT_YELLOW;
+      msg = "Update beschikbaar";
+      color = kWarn;
       break;
     case OTA_AVAIL_OFFLINE:
       msg = "Geen Wi-Fi voor check";
-      color = TFT_ORANGE;
+      color = kWarn;
       break;
     case OTA_AVAIL_ERROR:
-      msg = ota->last_error[0] ? ota->last_error : "Geen updateinfo (nog)";
-      color = TFT_ORANGE;
+      msg = ota->last_error[0] ? ota->last_error : "Geen updateinfo";
+      color = kDanger;
       break;
     default:
       break;
     }
     if (ota->remote_version[0] && update_ready) {
-      g_display.setCursor(6, 46);
-      g_display.printf("Nieuw: %s", ota->remote_version);
+      g_display.setTextColor(kAccent);
+      g_display.setCursor(10, 50);
+      g_display.printf("Nieuw  %s", ota->remote_version);
     }
   }
   g_display.setTextColor(color);
-  g_display.setCursor(6, update_ready ? 62 : 52);
+  g_display.setCursor(10, update_ready ? 68 : 56);
   g_display.print(msg);
   if (update_ready) {
-    g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 86);
+    g_display.setTextColor(kMuted);
+    g_display.setCursor(10, 90);
     g_display.print("Groene knop = installeren");
   }
 #else

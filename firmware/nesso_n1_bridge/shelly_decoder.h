@@ -17,9 +17,9 @@
 #define ZCL_STEP_DOWN 1
 
 /*
- * Mapping from official Shelly BLU RC Button 4 ZB docs and
- * zigbee-herdsman-converters four_buttons_* (SBBT-104CUS).
- * Identity is NOT derived from model string here.
+ * Shelly BLU RC Button 4 ZB (SBBT-104CUS).
+ * Default On/Off mode: EP1 ON/OFF → knop 1/2, EP2 ON/OFF → knop 3/4.
+ * Toggle mode: TOGGLE op EP k → knop k. Scenes: RecallScene op EP k.
  */
 bool shelly_decode(const ZclIncoming *cmd, ButtonEvent *out);
 

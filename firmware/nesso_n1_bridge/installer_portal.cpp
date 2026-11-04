@@ -24,57 +24,89 @@ static AppConfigStore *g_store = nullptr;
 
 #if NESSO_ENABLE_HW
 static const char *PAGE_CSS =
-    "body{font-family:system-ui,sans-serif;max-width:28rem;margin:1.5rem auto;padding:0 1rem;"
-    "background:#0f1419;color:#e7ecf1}"
-    "h1{font-size:1.35rem;margin:0 0 .25rem}"
-    "p.lead{color:#9aa7b5;margin:0 0 1.25rem}"
-    "section{background:#1a222c;border-radius:12px;padding:1rem 1.1rem;margin:0 0 1rem}"
-    "label{display:block;font-size:.85rem;color:#9aa7b5;margin:.65rem 0 .25rem}"
-    "input{width:100%;box-sizing:border-box;padding:.55rem .65rem;border-radius:8px;"
-    "border:1px solid #2c3845;background:#0f1419;color:#e7ecf1}"
-    "button{margin-top:1rem;width:100%;padding:.7rem;border:0;border-radius:8px;"
-    "background:#2dd4bf;color:#042f2e;font-weight:600}"
-    "button.secondary{background:#334155;color:#e7ecf1}"
-    ".ok{color:#4ade80}.warn{color:#fbbf24}.muted{color:#9aa7b5;font-size:.85rem}"
-    "ol{margin:.5rem 0 0 1.1rem;padding:0;color:#c5d0db}"
-    "li{margin:.35rem 0}";
+    ":root{--bg:#0c1218;--panel:#151d27;--line:#243041;--text:#e8eef4;--muted:#8b9aab;"
+    "--teal:#2dd4bf;--teal-dim:#115e59;--ok:#34d399;--warn:#fbbf24;--danger:#f87171}"
+    "*{box-sizing:border-box}"
+    "body{margin:0;font-family:'Segoe UI',ui-sans-serif,system-ui,sans-serif;color:var(--text);"
+    "background:radial-gradient(1200px 500px at 10% -10%,#123030 0%,transparent 55%),"
+    "radial-gradient(900px 400px at 100% 0%,#1a2433 0%,transparent 50%),var(--bg);"
+    "line-height:1.45}"
+    ".wrap{max-width:34rem;margin:0 auto;padding:1.5rem 1.1rem 2.5rem}"
+    ".brand{font-size:1.75rem;font-weight:700;letter-spacing:-.03em;color:var(--teal);margin:0}"
+    ".sub{margin:.2rem 0 0;font-size:1.05rem;font-weight:600;color:var(--text)}"
+    ".lead{color:var(--muted);margin:.55rem 0 1.4rem;font-size:.95rem}"
+    ".lead code{color:var(--teal);font-family:ui-monospace,Consolas,monospace;font-size:.9em}"
+    "section{background:var(--panel);border:1px solid var(--line);border-radius:14px;"
+    "padding:1.05rem 1.15rem;margin:0 0 .9rem}"
+    ".sec-h{display:flex;align-items:center;gap:.55rem;margin:0 0 .65rem}"
+    ".step{flex:0 0 auto;width:1.55rem;height:1.55rem;border-radius:999px;background:var(--teal-dim);"
+    "color:var(--teal);font-size:.75rem;font-weight:700;display:grid;place-items:center}"
+    ".sec-h h2{margin:0;font-size:1rem;font-weight:650}"
+    "label{display:block;font-size:.8rem;color:var(--muted);margin:.7rem 0 .28rem}"
+    "input{width:100%;padding:.6rem .7rem;border-radius:9px;border:1px solid var(--line);"
+    "background:#0c1218;color:var(--text);font-size:1rem}"
+    "input:focus{outline:2px solid rgba(45,212,191,.35);border-color:var(--teal)}"
+    ".row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.85rem}"
+    "button{appearance:none;border:0;border-radius:9px;padding:.65rem .95rem;font-weight:650;"
+    "font-size:.92rem;cursor:pointer;background:var(--teal);color:#042f2e}"
+    "button:disabled{opacity:.55;cursor:wait}"
+    "button.secondary{background:#243041;color:var(--text)}"
+    "button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}"
+    "button.tiny{padding:.3rem .55rem;font-size:.78rem;font-weight:600}"
+    ".ok{color:var(--ok)}.warn{color:var(--warn)}.muted{color:var(--muted);font-size:.85rem}"
+    ".pill{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .55rem;border-radius:999px;"
+    "background:#0c1218;border:1px solid var(--line);font-size:.8rem}"
+    ".dot{width:.45rem;height:.45rem;border-radius:50%;background:var(--muted)}"
+    ".dot.on{background:var(--ok)}.dot.warn{background:var(--warn)}"
+    "ol{margin:.35rem 0 .7rem 1.15rem;padding:0;color:#c2cedb;font-size:.9rem}"
+    "li{margin:.28rem 0}"
+    ".device{display:flex;align-items:center;justify-content:space-between;gap:.6rem;"
+    "padding:.55rem .65rem;margin:.4rem 0;border:1px solid var(--line);border-radius:10px;"
+    "background:#101821}"
+    ".device b{font-weight:650}"
+    "pre{white-space:pre-wrap;word-break:break-word;font-size:.72rem;max-height:16rem;overflow:auto;"
+    "background:#0c1218;border:1px solid var(--line);border-radius:10px;padding:.7rem;margin:.55rem 0 0;"
+    "color:#b8c6d4;font-family:ui-monospace,Consolas,monospace}"
+    ".foot{margin-top:1.1rem;color:var(--muted);font-size:.82rem;text-align:center}";
 
 static void send_home() {
   char ip[20] = "";
   wifi_sta_ip(ip, sizeof(ip));
   const bool hp_ok = g_hp && heatpump_config_is_ready(g_hp);
+  const bool wifi_ok = wifi_sta_connected();
 
   String html;
-  html.reserve(3500);
+  html.reserve(7800);
   html += "<!doctype html><html lang=nl><meta charset=utf-8>";
   html += "<meta name=viewport content=\"width=device-width,initial-scale=1\">";
-  html += "<title>Nesso installatie</title><style>";
+  html += "<title>Qvantum · Nesso</title><style>";
   html += PAGE_CSS;
-  html += "</style><body>";
-  html += "<h1>Nesso installatie</h1>";
-  html += "<p class=lead>Open <strong>http://";
+  html += "</style><body><div class=wrap>";
+  html += "<p class=brand>Qvantum</p>";
+  html += "<p class=sub>Nesso installatie</p>";
+  html += "<p class=lead>Open <code>http://";
   html += NESSO_MDNS_HOSTNAME;
-  html += ".local</strong> op dit Wi-Fi-netwerk. Geen cloud.</p>";
+  html += ".local</code> op dit Wi-Fi. Lokaal — geen cloud.</p>";
 
-  html += "<section><strong>Stap 1 — Wi-Fi</strong><br>";
-  if (wifi_sta_connected()) {
-    html += "<span class=ok>Verbonden</span><br>";
-    html += "<span class=muted>http://";
+  html += "<section><div class=sec-h><span class=step>1</span><h2>Wi-Fi</h2></div>";
+  if (wifi_ok) {
+    html += "<span class=pill><span class=\"dot on\"></span><span class=ok>Verbonden</span></span>";
+    html += "<p class=muted style=\"margin:.55rem 0 0\">";
     html += NESSO_MDNS_HOSTNAME;
     html += ".local";
     if (ip[0]) {
-      html += " · IP ";
+      html += " · ";
       html += ip;
     }
-    html += "</span>";
+    html += "</p>";
   } else {
-    html += "<span class=warn>Niet verbonden</span>";
+    html += "<span class=pill><span class=\"dot warn\"></span><span class=warn>Niet verbonden</span></span>";
   }
   html += "</section>";
 
-  html += "<section><strong>Stap 2 — Warmtepomp</strong>";
+  html += "<section><div class=sec-h><span class=step>2</span><h2>Warmtepomp</h2></div>";
   if (hp_ok) {
-    html += "<p class=ok>Ingesteld: ";
+    html += "<p class=ok style=\"margin:0 0 .6rem\">Ingesteld · ";
     html += g_hp->ipv4;
     html += " · poort ";
     html += String(g_hp->tcp_port);
@@ -82,10 +114,10 @@ static void send_home() {
     html += String(g_hp->unit_id);
     html += "</p>";
   } else {
-    html += "<p class=warn>Nog niet ingesteld — vul hieronder in.</p>";
+    html += "<p class=warn style=\"margin:0 0 .6rem\">Nog niet ingesteld</p>";
   }
   html += "<form method=POST action=/api/heatpump>";
-  html += "<label>IP-adres warmtepomp</label>";
+  html += "<label>IP-adres</label>";
   html += "<input name=ipv4 required placeholder=192.168.1.50 value=\"";
   if (g_hp && g_hp->ipv4[0]) {
     html += g_hp->ipv4;
@@ -105,75 +137,90 @@ static void send_home() {
     html += g_hp->label;
   }
   html += "\">";
-  html += "<button type=submit>Opslaan</button></form>";
-  html += "<p class=muted>Geen vrije register-editor — alleen vaste ventilatie-acties.</p>";
-  html += "<button class=secondary type=button id=mbbtn onclick=\"testMb()\">Test Modbus-verbinding</button>";
-  html += "<p class=muted id=mbstatus></p>";
+  html += "<div class=row><button type=submit>Opslaan</button>";
+  html += "<button class=secondary type=button id=mbbtn onclick=\"testMb()\">Test Modbus</button></div>";
+  html += "</form>";
+  html += "<p class=muted id=mbstatus style=\"margin:.55rem 0 0\"></p>";
   html += "<script>async function testMb(){const s=document.getElementById('mbstatus');"
           "const b=document.getElementById('mbbtn');b.disabled=true;s.textContent='Bezig…';s.className='muted';"
           "try{let r=await fetch('/api/modbus/probe',{method:'POST'});let j=await r.json();"
           "while(j.state==='busy'){await new Promise(x=>setTimeout(x,400));"
           "r=await fetch('/api/modbus/status');j=await r.json()}"
           "s.className=j.ok?'ok':'warn';s.textContent=j.msg||JSON.stringify(j)}"
-          "catch(e){s.className='warn';s.textContent='Portal/timeout — probeer opnieuw'}"
+          "catch(e){s.className='warn';s.textContent='Portal/timeout — opnieuw proberen'}"
           "b.disabled=false}</script>";
   html += "</section>";
 
-  html += "<section><strong>Stap 3 — Zigbee-knoppen</strong>";
-  html += "<p class=muted id=zbstatus>Laden…</p>";
-  html += "<ol><li>Klik “Join openen (120s)”</li>";
-  html += "<li>Shelly dicht bij Nesso: 5× snel drukken (paarse LED = Zigbee pair)</li>";
-  html += "<li>Groen = gelukt, rood = opnieuw (dichtbij + batterij OK)</li>";
-  html += "<li>Daarna 1× drukken; knop verschijnt hier automatisch</li>";
-  html += "<li>Apparaten verschijnen hier (max 5)</li></ol>";
-  html += "<button class=secondary type=button onclick=\"zbJoin()\">Join openen (120s)</button>";
-  html += "<button class=secondary type=button onclick=\"zbRefresh()\">Status vernieuwen</button>";
-  html += "<div id=zblist class=muted></div>";
+  html += "<section><div class=sec-h><span class=step>3</span><h2>Zigbee-knoppen</h2></div>";
+  html += "<p class=muted id=zbstatus style=\"margin:0 0 .5rem\">Laden…</p>";
+  html += "<ol><li>Join openen</li>";
+  html += "<li>Shelly dichtbij: 5× drukken (paars = pair)</li>";
+  html += "<li>Daarna 1× drukken — Nesso bindt alle 4 knoppen</li></ol>";
+  html += "<p class=muted>Laatste: <strong id=zblast style=\"color:var(--text)\">—</strong></p>";
+  html += "<div class=row><button type=button onclick=\"zbJoin()\">Join openen</button>";
+  html += "<button class=secondary type=button onclick=\"zbRefresh()\">Vernieuwen</button></div>";
+  html += "<div id=zblist></div>";
   html += "<script>async function zbRefresh(){try{const r=await fetch('/api/zigbee');"
           "const j=await r.json();const s=document.getElementById('zbstatus');"
           "s.className=j.join_open?'warn':'muted';"
-          "s.textContent=(j.running?'Zigbee aan':'Zigbee uit')+' · knoppen '+j.shelly_count+'/5'"
-          "+(j.join_open?(' · join '+j.join_remaining_s+'s'):'')"
-          "+(j.last_event?(' · '+j.last_event):'');"
-          "let h='';(j.shellys||[]).forEach(x=>{h+='<div style=\"margin:.4rem 0\">'+x.label+"
-          "' <span class=muted>'+x.eui+'</span> '"
-          "+'<button class=secondary type=button style=\"width:auto;padding:.25rem .5rem;"
-          "margin:0 0 0 .5rem\" onclick=\"zbRemove('+x.index+')\">Verwijder</button></div>'});"
+          "s.textContent=(j.running?'Zigbee aan':'Zigbee uit')+' · '+j.shelly_count+'/5 knoppen'"
+          "+(j.join_open?(' · join '+j.join_remaining_s+'s'):'');"
+          "document.getElementById('zblast').textContent=j.last_event||'—';"
+          "let h='';(j.shellys||[]).forEach(x=>{h+='<div class=device><div><b>'+x.label+"
+          "'</b><div class=muted>'+x.eui+'</div></div>"
+          "+'<button class=\"secondary tiny\" type=button onclick=\"zbRemove('+x.index+')\">"
+          "Verwijder</button></div>'});"
           "document.getElementById('zblist').innerHTML=h||'<p class=muted>Nog geen knoppen</p>'}"
           "catch(e){document.getElementById('zbstatus').textContent='Zigbee-status mislukt'}}"
           "async function zbJoin(){await fetch('/api/zigbee/join',{method:'POST'});zbRefresh()}"
           "async function zbRemove(i){await fetch('/api/zigbee/remove?index='+i,{method:'POST'});"
           "zbRefresh()}zbRefresh();setInterval(zbRefresh,3000)</script></section>";
 
-  html += "<section><strong>Software</strong><p class=muted>Huidige versie: ";
+  html += "<section><div class=sec-h><span class=step>·</span><h2>Software</h2></div>";
+  html += "<p class=muted style=\"margin:0 0 .55rem\">Firmware <strong style=\"color:var(--text)\">";
   html += NESSO_FW_VERSION;
-  html += "</p>";
-  html += "<button class=secondary type=button onclick=\"otaCheck()\">Controleren op update</button>";
-  html += "<button class=secondary type=button onclick=\"otaApply()\">Installeren</button>";
-  html += "<p class=muted id=otastatus></p>";
+  html += "</strong></p>";
+  html += "<div class=row><button class=secondary type=button onclick=\"otaCheck()\">Check update</button>";
+  html += "<button class=secondary type=button onclick=\"otaApply()\">Installeren</button></div>";
+  html += "<p class=muted id=otastatus style=\"margin:.55rem 0 0\"></p>";
   html += "<script>async function otaCheck(){const s=document.getElementById('otastatus');"
           "s.textContent='Controleren…';try{const r=await fetch('/api/ota/check',{method:'POST'});"
           "const j=await r.json();s.textContent=j.availability+' remote='+(j.remote||'')+"
           "' err='+(j.last_error||'')}catch(e){s.textContent='OTA-check mislukt'}}"
           "async function otaApply(){const s=document.getElementById('otastatus');"
-          "s.textContent='Installeren… (apparaat herstart bij succes)';"
+          "s.textContent='Installeren… (herstart bij succes)';"
           "try{const r=await fetch('/api/ota/apply',{method:'POST'});"
           "const j=await r.json();s.textContent=j.availability+' err='+(j.last_error||'')}"
-          "catch(e){s.textContent='Apply gestart of verbinding verbroken (herstart?)'}}</script>";
+          "catch(e){s.textContent='Apply gestart of verbinding verbroken'}}</script>";
   html += "</section>";
 
-  html += "<section><strong>Log</strong>";
-  html += "<p class=muted>Laatste regels van het apparaat (ook zonder USB).</p>";
-  html += "<pre id=logbox style=\"white-space:pre-wrap;font-size:.75rem;max-height:14rem;"
-          "overflow:auto;background:#0f1419;padding:.6rem;border-radius:8px\">Laden…</pre>";
-  html += "<button class=secondary type=button onclick=\"refreshLog()\">Log vernieuwen</button>";
-  html += "<script>async function refreshLog(){try{const r=await fetch('/api/logs');"
+  html += "<section><div class=sec-h><span class=step>·</span><h2>Debug</h2></div>";
+  html += "<p class=muted style=\"margin:0 0 .45rem\">Diag + log (tag zbtrace).</p>";
+  html += "<div class=row><button class=secondary type=button onclick=\"zbDiag()\">Diag</button>";
+  html += "<button class=secondary type=button onclick=\"zbRebind()\">Rebind (druk knop)</button>";
+  html += "<button class=secondary type=button onclick=\"refreshLog()\">Log</button>";
+  html += "<button class=ghost type=button id=logcopybtn onclick=\"copyLog()\">Kopiëren</button></div>";
+  html += "<pre id=zbdiag>—</pre>";
+  html += "<pre id=logbox>Laden…</pre>";
+  html += "<script>async function zbDiag(){try{const r=await fetch('/api/zigbee/diag');"
+          "document.getElementById('zbdiag').textContent=JSON.stringify(await r.json(),null,2)}"
+          "catch(e){document.getElementById('zbdiag').textContent='diag mislukt'}}"
+          "async function zbRebind(){await fetch('/api/zigbee/rebind',{method:'POST'});zbDiag()}"
+          "async function refreshLog(){try{const r=await fetch('/api/logs');"
           "document.getElementById('logbox').textContent=await r.text()}catch(e)"
           "{document.getElementById('logbox').textContent='Log ophalen mislukt'}}"
-          "refreshLog();setInterval(refreshLog,3000);</script></section>";
+          "async function copyLog(){const t=document.getElementById('logbox').textContent||'';"
+          "const b=document.getElementById('logcopybtn');"
+          "try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(t)}"
+          "else{const a=document.createElement('textarea');a.value=t;"
+          "a.style.cssText='position:fixed;left:-9999px';document.body.appendChild(a);"
+          "a.select();document.execCommand('copy');a.remove()}"
+          "b.textContent='Gekopieerd';setTimeout(()=>b.textContent='Kopiëren',1500)}"
+          "catch(e){b.textContent='Mislukt';setTimeout(()=>b.textContent='Kopiëren',2000)}}"
+          "refreshLog();setInterval(refreshLog,4000);</script></section>";
 
-  html += "<p class=muted>Wi-Fi opnieuw? Houd knop 1 op het apparaat in.</p>";
-  html += "</body></html>";
+  html += "<p class=foot>Wi-Fi opnieuw? Houd knop 1 op het apparaat in.</p>";
+  html += "</div></body></html>";
   g_server.send(200, "text/html; charset=utf-8", html);
 }
 
@@ -203,10 +250,25 @@ static void handle_heatpump_post() {
 }
 
 static void handle_logs() {
-  /* Genoeg voor ~48 regels */
-  static char buf[8192];
+  /* ~120 regels zbtrace */
+  static char buf[24576];
   log_ring_copy(buf, sizeof(buf));
   g_server.send(200, "text/plain; charset=utf-8", buf);
+}
+
+static void handle_zigbee_diag() {
+  static char json[1536];
+  zigbee_format_diag_json(json, sizeof(json));
+  /* dump_now alleen als klaar — tijdens start freezet neighbor-walk/USB */
+  if (zigbee_join_ready()) {
+    zigbee_diag_dump_now();
+  }
+  g_server.send(200, "application/json", json);
+}
+
+static void handle_zigbee_rebind() {
+  zigbee_diag_rebind_all();
+  handle_zigbee_diag();
 }
 
 static void handle_modbus_status() {
@@ -330,6 +392,8 @@ bool portal_begin_with_store(HeatpumpConfig *heatpump, OtaStatus *ota, AppConfig
   g_server.on("/api/zigbee", HTTP_GET, handle_zigbee_get);
   g_server.on("/api/zigbee/join", HTTP_POST, handle_zigbee_join);
   g_server.on("/api/zigbee/remove", HTTP_POST, handle_zigbee_remove);
+  g_server.on("/api/zigbee/diag", HTTP_GET, handle_zigbee_diag);
+  g_server.on("/api/zigbee/rebind", HTTP_POST, handle_zigbee_rebind);
   g_server.on("/api/registers", HTTP_ANY, handle_forbidden);
   g_server.onNotFound(handle_not_found);
   g_server.begin();
