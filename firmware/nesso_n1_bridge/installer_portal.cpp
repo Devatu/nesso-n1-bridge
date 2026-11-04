@@ -8,6 +8,7 @@
 #include "portal_api.h"
 #include "storage.h"
 #include "wifi_manager.h"
+#include "zigbee_coordinator.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -118,9 +119,29 @@ static void send_home() {
           "b.disabled=false}</script>";
   html += "</section>";
 
-  html += "<section><strong>Stap 3 — Knoppen</strong>";
-  html += "<ol><li>Zigbee-knoppen in de buurt houden</li>";
-  html += "<li>Later: knoppen koppelen in de setup</li></ol></section>";
+  html += "<section><strong>Stap 3 — Zigbee-knoppen</strong>";
+  html += "<p class=muted id=zbstatus>Laden…</p>";
+  html += "<ol><li>Klik “Join openen (120s)”</li>";
+  html += "<li>Op de Shelly: 5× snel drukken (pairing)</li>";
+  html += "<li>Apparaten verschijnen hier (max 5)</li></ol>";
+  html += "<button class=secondary type=button onclick=\"zbJoin()\">Join openen (120s)</button>";
+  html += "<button class=secondary type=button onclick=\"zbRefresh()\">Status vernieuwen</button>";
+  html += "<div id=zblist class=muted></div>";
+  html += "<script>async function zbRefresh(){try{const r=await fetch('/api/zigbee');"
+          "const j=await r.json();const s=document.getElementById('zbstatus');"
+          "s.className=j.join_open?'warn':'muted';"
+          "s.textContent=(j.running?'Zigbee aan':'Zigbee uit')+' · knoppen '+j.shelly_count+'/5'"
+          "+(j.join_open?(' · join '+j.join_remaining_s+'s'):'')"
+          "+(j.last_event?(' · '+j.last_event):'');"
+          "let h='';(j.shellys||[]).forEach(x=>{h+='<div style=\"margin:.4rem 0\">'+x.label+"
+          "' <span class=muted>'+x.eui+'</span> '"
+          "+'<button class=secondary type=button style=\"width:auto;padding:.25rem .5rem;"
+          "margin:0 0 0 .5rem\" onclick=\"zbRemove('+x.index+')\">Verwijder</button></div>'});"
+          "document.getElementById('zblist').innerHTML=h||'<p class=muted>Nog geen knoppen</p>'}"
+          "catch(e){document.getElementById('zbstatus').textContent='Zigbee-status mislukt'}}"
+          "async function zbJoin(){await fetch('/api/zigbee/join',{method:'POST'});zbRefresh()}"
+          "async function zbRemove(i){await fetch('/api/zigbee/remove?index='+i,{method:'POST'});"
+          "zbRefresh()}zbRefresh();setInterval(zbRefresh,3000)</script></section>";
 
   html += "<section><strong>Software</strong><p class=muted>Huidige versie: ";
   html += NESSO_FW_VERSION;
@@ -250,6 +271,30 @@ static void handle_ota_apply() {
   handle_ota_get();
 }
 
+static void handle_zigbee_get() {
+  static char json[768];
+  zigbee_format_status_json(json, sizeof(json));
+  g_server.send(200, "application/json", json);
+}
+
+static void handle_zigbee_join() {
+  const bool ok = zigbee_open_join((uint8_t)NESSO_ZIGBEE_JOIN_WINDOW_S);
+  if (!ok) {
+    g_server.send(503, "application/json", "{\"ok\":false,\"msg\":\"Zigbee niet actief\"}");
+    return;
+  }
+  handle_zigbee_get();
+}
+
+static void handle_zigbee_remove() {
+  const int idx = g_server.hasArg("index") ? g_server.arg("index").toInt() : -1;
+  if (idx < 0 || idx >= NESSO_MAX_SHELLY_SLOTS || !zigbee_remove_shelly_index((uint8_t)idx)) {
+    g_server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  handle_zigbee_get();
+}
+
 static void handle_forbidden() {
   g_server.send(403, "text/plain; charset=utf-8", "Niet toegestaan.");
 }
@@ -280,6 +325,9 @@ bool portal_begin_with_store(HeatpumpConfig *heatpump, OtaStatus *ota, AppConfig
   g_server.on("/api/ota", HTTP_GET, handle_ota_get);
   g_server.on("/api/ota/check", HTTP_POST, handle_ota_check);
   g_server.on("/api/ota/apply", HTTP_POST, handle_ota_apply);
+  g_server.on("/api/zigbee", HTTP_GET, handle_zigbee_get);
+  g_server.on("/api/zigbee/join", HTTP_POST, handle_zigbee_join);
+  g_server.on("/api/zigbee/remove", HTTP_POST, handle_zigbee_remove);
   g_server.on("/api/registers", HTTP_ANY, handle_forbidden);
   g_server.onNotFound(handle_not_found);
   g_server.begin();

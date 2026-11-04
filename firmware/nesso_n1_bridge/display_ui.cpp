@@ -3,6 +3,7 @@
 #include "log.h"
 #include "modbus_client.h"
 #include "wifi_manager.h"
+#include "zigbee_coordinator.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -375,6 +376,46 @@ void display_show_wifi_confirm() {
   g_display.print("en opnieuw koppelen");
   g_display.setCursor(6, 76);
   g_display.print("via de telefoon-app.");
+#endif
+}
+
+void display_show_zigbee() {
+#if NESSO_ENABLE_HW
+  if (!g_ok) {
+    return;
+  }
+  clear_screen();
+  g_display.setTextColor(TFT_CYAN);
+  g_display.setTextSize(2);
+  g_display.setCursor(6, 4);
+  g_display.print("Zigbee");
+  draw_nav_cues("^Menu", "Kies");
+
+  g_display.setTextSize(1);
+  g_display.setTextColor(TFT_WHITE);
+  g_display.setCursor(6, 32);
+  g_display.printf("Gekoppeld: %d / %d", zigbee_shelly_count(), NESSO_MAX_SHELLY_SLOTS);
+
+  if (!zigbee_is_running()) {
+    g_display.setTextColor(TFT_ORANGE);
+    g_display.setCursor(6, 52);
+    g_display.print("Radio uit of gepauzeerd");
+  } else if (zigbee_join_is_open()) {
+    g_display.setTextColor(TFT_YELLOW);
+    g_display.setCursor(6, 52);
+    g_display.printf("Join open: %us", (unsigned)zigbee_join_remaining_s());
+    g_display.setTextColor(TFT_DARKGREY);
+    g_display.setCursor(6, 72);
+    g_display.print("Shelly: 5× knop = pair");
+  } else {
+    g_display.setTextColor(TFT_GREEN);
+    g_display.setCursor(6, 52);
+    g_display.print("Netwerk dicht (veilig)");
+    g_display.setTextColor(TFT_DARKGREY);
+    g_display.setCursor(6, 72);
+    g_display.print("Kies = 120s join openen");
+  }
+#else
 #endif
 }
 

@@ -23,6 +23,7 @@ enum UiScreen {
   UI_WIFI_CONFIRM,
   UI_FACTORY_CONFIRM,
   UI_MODBUS_TEST,
+  UI_ZIGBEE,
   UI_BLE
 };
 
@@ -65,7 +66,7 @@ static void start_ble_wifi_provision(bool reset_creds) {
 
 static void start_normal_services() {
   wifi_sta_begin();
-  zigbee_coordinator_begin();
+  zigbee_coordinator_begin(&g_store.registry, &g_dedup, &g_store);
   if (heatpump_config_is_ready(&g_store.heatpump)) {
     modbus_set_target(&g_store.heatpump);
   }
@@ -119,6 +120,10 @@ static void activate_menu_item() {
     } else {
       display_show_modbus_test(4, "Eerst warmtepomp-IP");
     }
+    break;
+  case UI_MENU_ZIGBEE:
+    g_screen = UI_ZIGBEE;
+    display_show_zigbee();
     break;
   case UI_MENU_INFO:
     g_screen = UI_INFO;
@@ -218,6 +223,9 @@ void loop() {
     } else if (g_screen == UI_MODBUS_TEST) {
       g_modbus_test_index = (uint8_t)((g_modbus_test_index + 1) % 5);
       display_show_modbus_test(g_modbus_test_index, nullptr);
+    } else if (g_screen == UI_ZIGBEE) {
+      g_screen = UI_MENU;
+      display_show_menu(g_menu_index);
     } else if (g_screen == UI_WIFI_CONFIRM || g_screen == UI_FACTORY_CONFIRM) {
       g_screen = UI_MENU;
       display_show_menu(g_menu_index);
@@ -234,6 +242,13 @@ void loop() {
       activate_menu_item();
     } else if (g_screen == UI_MODBUS_TEST) {
       activate_modbus_test();
+    } else if (g_screen == UI_ZIGBEE) {
+      if (zigbee_join_is_open()) {
+        zigbee_close_join();
+      } else {
+        zigbee_open_join((uint8_t)NESSO_ZIGBEE_JOIN_WINDOW_S);
+      }
+      display_show_zigbee();
     } else if (g_screen == UI_WIFI_CONFIRM) {
       start_ble_wifi_provision(true);
     } else if (g_screen == UI_FACTORY_CONFIRM) {
@@ -281,6 +296,10 @@ void loop() {
       if (wifi_sta_connected()) {
         display_show_home();
       }
+    }
+    if (g_screen == UI_ZIGBEE && (now - g_last_home_ms) > 1000) {
+      g_last_home_ms = now;
+      display_show_zigbee();
     }
   }
   wifi_sta_poll();

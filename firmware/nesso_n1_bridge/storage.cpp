@@ -61,9 +61,22 @@ bool storage_load(AppConfigStore *store) {
     }
   }
 
+  /* Shelly/router registry blob (optional on older NVS). */
+  registry_init(&store->registry);
+  const size_t reg_len = prefs.getBytesLength("registry");
+  if (reg_len == sizeof(DeviceRegistry)) {
+    DeviceRegistry tmp;
+    if (prefs.getBytes("registry", &tmp, sizeof(tmp)) == sizeof(tmp)) {
+      store->registry = tmp;
+      store->registry.schema_version = NESSO_CONFIG_SCHEMA_VERSION;
+      LOG_I("storage", "registry restored shellys=%d", registry_shelly_count(&store->registry));
+    }
+  }
+
   prefs.end();
-  LOG_I("storage", "loaded schema=%u wifi=%d hp=%d", store->schema_version,
-        store->wifi_provisioned ? 1 : 0, store->heatpump.configured ? 1 : 0);
+  LOG_I("storage", "loaded schema=%u wifi=%d hp=%d shelly=%d", store->schema_version,
+        store->wifi_provisioned ? 1 : 0, store->heatpump.configured ? 1 : 0,
+        registry_shelly_count(&store->registry));
   return true;
 #else
   LOG_W("storage", "scaffold: no NVS (HOST)");
@@ -100,9 +113,12 @@ bool storage_save(const AppConfigStore *store) {
     prefs.remove("hp_label");
   }
 
+  prefs.putBytes("registry", &store->registry, sizeof(store->registry));
+
   prefs.end();
-  LOG_I("storage", "saved schema=%u wifi=%d hp=%d", store->schema_version,
-        store->wifi_provisioned ? 1 : 0, store->heatpump.configured ? 1 : 0);
+  LOG_I("storage", "saved schema=%u wifi=%d hp=%d shelly=%d", store->schema_version,
+        store->wifi_provisioned ? 1 : 0, store->heatpump.configured ? 1 : 0,
+        registry_shelly_count(&store->registry));
   return true;
 #else
   LOG_W("storage", "scaffold save ignored");

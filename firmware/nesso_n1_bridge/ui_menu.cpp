@@ -10,6 +10,8 @@ const char *ui_menu_label(UiMenuId id) {
     return "Software-update";
   case UI_MENU_MODBUS_TEST:
     return "Ventilatie-test";
+  case UI_MENU_ZIGBEE:
+    return "Zigbee-knoppen";
   case UI_MENU_INFO:
     return "Info / versie";
   case UI_MENU_FACTORY:

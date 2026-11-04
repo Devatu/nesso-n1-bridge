@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define NESSO_PRODUCT_ID "nesso-n1-heatpump-bridge"
-#define NESSO_FW_VERSION "0.0.9-ota"
+#define NESSO_FW_VERSION "0.0.10-ota"
 #define NESSO_CONFIG_SCHEMA_VERSION 2
 #define NESSO_BOARD_ID "arduino_nesso_n1"
 #define NESSO_OTA_CHANNEL "stable"
