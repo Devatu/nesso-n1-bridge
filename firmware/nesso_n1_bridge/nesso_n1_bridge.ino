@@ -65,12 +65,13 @@ static void start_ble_wifi_provision(bool reset_creds) {
 }
 
 static void start_normal_services() {
+  /* Wi-Fi first; Zigbee starts later in poll() after STA is up + coex enable. */
   wifi_sta_begin();
-  zigbee_coordinator_begin(&g_store.registry, &g_dedup, &g_store);
   if (heatpump_config_is_ready(&g_store.heatpump)) {
     modbus_set_target(&g_store.heatpump);
   }
   portal_begin_with_store(&g_store.heatpump, &g_ota, &g_store);
+  zigbee_coordinator_begin(&g_store.registry, &g_dedup, &g_store);
   g_screen = UI_HOME;
   display_show_home();
 }

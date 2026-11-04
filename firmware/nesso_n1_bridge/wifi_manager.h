@@ -7,6 +7,7 @@
 bool wifi_sta_begin();
 void wifi_sta_poll();
 bool wifi_sta_connected();
+bool wifi_sta_reconnect();
 bool wifi_sta_ip(char *out, size_t out_len);
 bool wifi_has_saved_network();
 void wifi_erase_credentials();

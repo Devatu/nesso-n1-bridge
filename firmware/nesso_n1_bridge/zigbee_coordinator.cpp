@@ -5,6 +5,7 @@
 #include "log.h"
 #include "modbus_client.h"
 #include "shelly_decoder.h"
+#include "wifi_manager.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -13,6 +14,8 @@
 #error "Zigbee ZCZR (coordinator) mode required"
 #endif
 #include "Zigbee.h"
+#include <esp_coexist.h>
+#include <WiFi.h>
 #endif
 
 static DeviceRegistry *g_reg = nullptr;
@@ -20,13 +23,19 @@ static EventDedup *g_dedup = nullptr;
 static AppConfigStore *g_store = nullptr;
 static bool g_running = false;
 static bool g_paused = false;
+static bool g_start_pending = false;
+static bool g_start_failed = false;
+static uint32_t g_start_wait_since_ms = 0;
 static uint32_t g_join_until_ms = 0;
 static char g_last_event[48] = "";
 
 #if NESSO_ENABLE_HW
 /* Light EP so Shelly remotes can bind and send On/Off / Level / Scenes. */
 #define NESSO_ZB_LIGHT_EP 10
+/* Wait for STA before Zigbee.begin — otherwise association dies (C6 single RF). */
+#define NESSO_ZB_WIFI_WAIT_MS 25000UL
 static ZigbeeDimmableLight g_zb_light = ZigbeeDimmableLight(NESSO_ZB_LIGHT_EP);
+static bool g_ep_ready = false;
 
 static void persist_registry() {
   if (g_store != nullptr) {
@@ -207,6 +216,56 @@ static void register_privilege_commands() {
 }
 #endif /* NESSO_ENABLE_HW */
 
+#if NESSO_ENABLE_HW
+static bool zigbee_start_now() {
+  if (Zigbee.started()) {
+    g_running = true;
+    g_start_pending = false;
+    return true;
+  }
+
+  if (!g_ep_ready) {
+    g_zb_light.setManufacturerAndModel("Qvantum", "NessoN1Bridge");
+    g_zb_light.allowMultipleBinding(true);
+    register_privilege_commands();
+    if (!Zigbee.addEndpoint(&g_zb_light)) {
+      LOG_E("zigbee", "addEndpoint failed");
+      g_start_failed = true;
+      g_start_pending = false;
+      return false;
+    }
+    g_ep_ready = true;
+  }
+
+  /* Espressif: enable Wi-Fi ↔ 802.15.4 coexistence before Zigbee stack. */
+  const esp_err_t coex = esp_coex_wifi_i154_enable();
+  LOG_I("zigbee", "esp_coex_wifi_i154_enable → %d", (int)coex);
+
+  /* Closed by default — never setRebootOpenNetwork for production. */
+  Zigbee.setTimeout(45000);
+  if (!Zigbee.begin(ZIGBEE_COORDINATOR, false)) {
+    LOG_E("zigbee", "Zigbee.begin(COORDINATOR) failed");
+    g_running = false;
+    g_start_failed = true;
+    g_start_pending = false;
+    wifi_sta_reconnect();
+    return false;
+  }
+
+  g_running = true;
+  g_start_pending = false;
+  g_start_failed = false;
+  LOG_I("zigbee", "coordinator up; join closed; shellys=%d wifi=%d",
+        g_reg ? registry_shelly_count(g_reg) : 0, wifi_sta_connected() ? 1 : 0);
+
+  /* Zigbee form can drop STA briefly on C6 — nudge reconnect. */
+  if (!wifi_sta_connected()) {
+    wifi_sta_reconnect();
+  }
+  return true;
+}
+#endif
+
 bool zigbee_coordinator_begin(DeviceRegistry *reg, EventDedup *dedup, AppConfigStore *store) {
   g_reg = reg;
   g_dedup = dedup;
@@ -214,35 +273,23 @@ bool zigbee_coordinator_begin(DeviceRegistry *reg, EventDedup *dedup, AppConfigS
   g_paused = false;
   g_join_until_ms = 0;
   g_last_event[0] = '\0';
+  g_start_failed = false;
 
 #if NESSO_ENABLE_HW
   if (Zigbee.started()) {
     g_running = true;
+    g_start_pending = false;
     LOG_I("zigbee", "already started");
     return true;
   }
 
-  g_zb_light.setManufacturerAndModel("Qvantum", "NessoN1Bridge");
-  g_zb_light.allowMultipleBinding(true);
-  register_privilege_commands();
-
-  if (!Zigbee.addEndpoint(&g_zb_light)) {
-    LOG_E("zigbee", "addEndpoint failed");
-    g_running = false;
-    return false;
-  }
-
-  /* Closed by default — never setRebootOpenNetwork for production. */
-  Zigbee.setTimeout(45000);
-  if (!Zigbee.begin(ZIGBEE_COORDINATOR, false)) {
-    LOG_E("zigbee", "Zigbee.begin(COORDINATOR) failed");
-    g_running = false;
-    return false;
-  }
-
-  g_running = true;
-  LOG_I("zigbee", "coordinator up; join closed; shellys=%d",
-        g_reg ? registry_shelly_count(g_reg) : 0);
+  /* Defer Zigbee.begin until Wi-Fi STA is up (or wait timeout).
+   * Calling Zigbee.begin immediately after WiFi.begin() breaks association. */
+  g_start_pending = true;
+  g_start_wait_since_ms = millis();
+  g_running = false;
+  set_last_event("wacht op Wi-Fi");
+  LOG_I("zigbee", "scheduled after Wi-Fi (coex C1 on ESP32-C6)");
   return true;
 #else
   LOG_W("zigbee", "scaffold (HOST) — no radio");
@@ -253,7 +300,27 @@ bool zigbee_coordinator_begin(DeviceRegistry *reg, EventDedup *dedup, AppConfigS
 
 void zigbee_coordinator_poll() {
 #if NESSO_ENABLE_HW
-  if (!g_running || g_paused) {
+  if (g_paused) {
+    return;
+  }
+
+  if (g_start_pending && !g_running && !g_start_failed) {
+    const uint32_t now = millis();
+    const bool wifi_ok = wifi_sta_connected();
+    const bool waited_long = (now - g_start_wait_since_ms) >= NESSO_ZB_WIFI_WAIT_MS;
+    if (wifi_ok || waited_long) {
+      if (!wifi_ok) {
+        LOG_W("zigbee", "starting without Wi-Fi after %lu ms wait",
+              (unsigned long)(now - g_start_wait_since_ms));
+      } else {
+        LOG_I("zigbee", "Wi-Fi up — starting coordinator");
+      }
+      set_last_event(wifi_ok ? "start na Wi-Fi" : "start zonder Wi-Fi");
+      zigbee_start_now();
+    }
+  }
+
+  if (!g_running) {
     return;
   }
   if (g_join_until_ms != 0 && !join_open_now()) {

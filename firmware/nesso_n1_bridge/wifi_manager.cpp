@@ -57,6 +57,25 @@ bool wifi_sta_connected() {
 #endif
 }
 
+bool wifi_sta_reconnect() {
+#if NESSO_ENABLE_HW
+  if (!g_sta_started) {
+    return wifi_sta_begin();
+  }
+  if (wifi_sta_connected()) {
+    return true;
+  }
+  LOG_W("wifi", "reconnect after radio coexistence");
+  WiFi.disconnect(false /* wifioff */, false /* eraseap */);
+  delay(50);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin();
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool wifi_sta_ip(char *out, size_t out_len) {
   if (out == nullptr || out_len == 0) {
     return false;
