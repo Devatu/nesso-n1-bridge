@@ -7,17 +7,27 @@
 #if NESSO_ENABLE_HW
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <esp_coexist.h>
 #include <esp_wifi.h>
 #endif
 
 static bool g_ap = false;
 static bool g_sta_started = false;
 static bool g_mdns = false;
+static bool g_coex_on = false;
 
 bool wifi_sta_begin() {
 #if NESSO_ENABLE_HW
+  if (!g_coex_on) {
+    /* Must be early for C6 Wi-Fi + 802.15.4 time-sharing. */
+    const esp_err_t e = esp_coex_wifi_i154_enable();
+    g_coex_on = (e == ESP_OK);
+    LOG_I("wifi", "esp_coex_wifi_i154_enable → %d", (int)e);
+  }
   if (!g_sta_started) {
+    WiFi.persistent(true);
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false); /* coexistence is less painful with sleep off */
     WiFi.begin();
     g_sta_started = true;
   }

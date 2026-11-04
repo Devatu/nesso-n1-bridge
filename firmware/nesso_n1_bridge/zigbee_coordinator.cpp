@@ -25,15 +25,13 @@ static bool g_running = false;
 static bool g_paused = false;
 static bool g_start_pending = false;
 static bool g_start_failed = false;
-static uint32_t g_start_wait_since_ms = 0;
+static bool g_start_task_launched = false;
 static uint32_t g_join_until_ms = 0;
 static char g_last_event[48] = "";
 
 #if NESSO_ENABLE_HW
 /* Light EP so Shelly remotes can bind and send On/Off / Level / Scenes. */
 #define NESSO_ZB_LIGHT_EP 10
-/* Wait for STA before Zigbee.begin — otherwise association dies (C6 single RF). */
-#define NESSO_ZB_WIFI_WAIT_MS 25000UL
 static ZigbeeDimmableLight g_zb_light = ZigbeeDimmableLight(NESSO_ZB_LIGHT_EP);
 static bool g_ep_ready = false;
 
@@ -217,12 +215,10 @@ static void register_privilege_commands() {
 #endif /* NESSO_ENABLE_HW */
 
 #if NESSO_ENABLE_HW
-static bool zigbee_start_now() {
-  if (Zigbee.started()) {
-    g_running = true;
-    g_start_pending = false;
-    return true;
-  }
+static void zigbee_start_task(void *arg) {
+  (void)arg;
+  LOG_I("zigbee", "background start (Wi-Fi already up)");
+  set_last_event("Zigbee starten…");
 
   if (!g_ep_ready) {
     g_zb_light.setManufacturerAndModel("Qvantum", "NessoN1Bridge");
@@ -232,37 +228,48 @@ static bool zigbee_start_now() {
       LOG_E("zigbee", "addEndpoint failed");
       g_start_failed = true;
       g_start_pending = false;
-      return false;
+      g_start_task_launched = false;
+      set_last_event("endpoint fout");
+      vTaskDelete(nullptr);
+      return;
     }
     g_ep_ready = true;
   }
 
-  /* Espressif: enable Wi-Fi ↔ 802.15.4 coexistence before Zigbee stack. */
+  /* Reinforce coex (also enabled in wifi_sta_begin). */
   const esp_err_t coex = esp_coex_wifi_i154_enable();
   LOG_I("zigbee", "esp_coex_wifi_i154_enable → %d", (int)coex);
 
-  /* Closed by default — never setRebootOpenNetwork for production. */
   Zigbee.setTimeout(45000);
   if (!Zigbee.begin(ZIGBEE_COORDINATOR, false)) {
     LOG_E("zigbee", "Zigbee.begin(COORDINATOR) failed");
     g_running = false;
     g_start_failed = true;
     g_start_pending = false;
+    g_start_task_launched = false;
+    set_last_event("Zigbee start mislukt");
     wifi_sta_reconnect();
-    return false;
+    vTaskDelete(nullptr);
+    return;
   }
 
   g_running = true;
   g_start_pending = false;
   g_start_failed = false;
-  LOG_I("zigbee", "coordinator up; join closed; shellys=%d wifi=%d",
+  g_start_task_launched = false;
+  set_last_event("coordinator aan");
+  LOG_I("zigbee", "coordinator up; shellys=%d wifi=%d",
         g_reg ? registry_shelly_count(g_reg) : 0, wifi_sta_connected() ? 1 : 0);
 
-  /* Zigbee form can drop STA briefly on C6 — nudge reconnect. */
-  if (!wifi_sta_connected()) {
-    wifi_sta_reconnect();
+  /* Formation often drops STA on single-RF C6 — reconnect and wait a bit. */
+  for (int i = 0; i < 20 && !wifi_sta_connected(); ++i) {
+    if (i == 0 || i == 5 || i == 10) {
+      wifi_sta_reconnect();
+    }
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
-  return true;
+  LOG_I("zigbee", "post-start wifi=%d", wifi_sta_connected() ? 1 : 0);
+  vTaskDelete(nullptr);
 }
 #endif
 
@@ -274,6 +281,7 @@ bool zigbee_coordinator_begin(DeviceRegistry *reg, EventDedup *dedup, AppConfigS
   g_join_until_ms = 0;
   g_last_event[0] = '\0';
   g_start_failed = false;
+  g_start_task_launched = false;
 
 #if NESSO_ENABLE_HW
   if (Zigbee.started()) {
@@ -283,13 +291,11 @@ bool zigbee_coordinator_begin(DeviceRegistry *reg, EventDedup *dedup, AppConfigS
     return true;
   }
 
-  /* Defer Zigbee.begin until Wi-Fi STA is up (or wait timeout).
-   * Calling Zigbee.begin immediately after WiFi.begin() breaks association. */
+  /* Only start after Wi-Fi STA is connected. Never block the UI loop. */
   g_start_pending = true;
-  g_start_wait_since_ms = millis();
   g_running = false;
   set_last_event("wacht op Wi-Fi");
-  LOG_I("zigbee", "scheduled after Wi-Fi (coex C1 on ESP32-C6)");
+  LOG_I("zigbee", "waiting for Wi-Fi before Zigbee (ESP32-C6 coex=C1)");
   return true;
 #else
   LOG_W("zigbee", "scaffold (HOST) — no radio");
@@ -304,19 +310,13 @@ void zigbee_coordinator_poll() {
     return;
   }
 
-  if (g_start_pending && !g_running && !g_start_failed) {
-    const uint32_t now = millis();
-    const bool wifi_ok = wifi_sta_connected();
-    const bool waited_long = (now - g_start_wait_since_ms) >= NESSO_ZB_WIFI_WAIT_MS;
-    if (wifi_ok || waited_long) {
-      if (!wifi_ok) {
-        LOG_W("zigbee", "starting without Wi-Fi after %lu ms wait",
-              (unsigned long)(now - g_start_wait_since_ms));
-      } else {
-        LOG_I("zigbee", "Wi-Fi up — starting coordinator");
-      }
-      set_last_event(wifi_ok ? "start na Wi-Fi" : "start zonder Wi-Fi");
-      zigbee_start_now();
+  if (g_start_pending && !g_running && !g_start_failed && !g_start_task_launched) {
+    if (wifi_sta_connected()) {
+      g_start_task_launched = true;
+      set_last_event("Zigbee starten…");
+      LOG_I("zigbee", "Wi-Fi up — launching Zigbee task");
+      /* Separate task: Zigbee.begin() can block ~tens of seconds. */
+      xTaskCreate(zigbee_start_task, "zb_start", 8192, nullptr, 1, nullptr);
     }
   }
 
