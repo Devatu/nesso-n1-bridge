@@ -389,30 +389,44 @@ void display_show_zigbee() {
   g_display.setTextSize(2);
   g_display.setCursor(6, 4);
   g_display.print("Zigbee");
-  draw_nav_cues("^Menu", "Kies");
+
+  const bool joining = zigbee_join_is_open();
+  /* Tijdens join: geen ^Menu — per ongeluk wegdrukken breekt pairing. */
+  draw_nav_cues(joining ? "^Wacht" : "^Menu", joining ? "Stop" : "Kies");
 
   g_display.setTextSize(1);
   g_display.setTextColor(TFT_WHITE);
   g_display.setCursor(6, 32);
   g_display.printf("Gekoppeld: %d / %d", zigbee_shelly_count(), NESSO_MAX_SHELLY_SLOTS);
 
+  g_display.setCursor(6, 46);
+  if (wifi_sta_connected()) {
+    g_display.setTextColor(TFT_GREEN);
+    g_display.print("Wi-Fi OK");
+  } else {
+    g_display.setTextColor(TFT_ORANGE);
+    g_display.print(joining ? "Wi-Fi even weg (join door)" : "Geen Wi-Fi");
+  }
+
   if (!zigbee_is_running()) {
     g_display.setTextColor(TFT_ORANGE);
-    g_display.setCursor(6, 52);
+    g_display.setCursor(6, 64);
     g_display.print("Radio uit of gepauzeerd");
-  } else if (zigbee_join_is_open()) {
+  } else if (joining) {
     g_display.setTextColor(TFT_YELLOW);
-    g_display.setCursor(6, 52);
+    g_display.setCursor(6, 64);
     g_display.printf("Join open: %us", (unsigned)zigbee_join_remaining_s());
     g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 72);
+    g_display.setCursor(6, 82);
     g_display.print("Shelly: 5× knop = pair");
+    g_display.setCursor(6, 98);
+    g_display.print("Blijf hier tot join klaar is");
   } else {
     g_display.setTextColor(TFT_GREEN);
-    g_display.setCursor(6, 52);
+    g_display.setCursor(6, 64);
     g_display.print("Netwerk dicht (veilig)");
     g_display.setTextColor(TFT_DARKGREY);
-    g_display.setCursor(6, 72);
+    g_display.setCursor(6, 82);
     g_display.print("Kies = 120s join openen");
   }
 #else

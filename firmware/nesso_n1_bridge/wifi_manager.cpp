@@ -15,6 +15,8 @@ static bool g_ap = false;
 static bool g_sta_started = false;
 static bool g_mdns = false;
 static bool g_coex_on = false;
+static bool g_hold_off = false;
+static uint32_t g_last_ensure_ms = 0;
 
 bool wifi_sta_begin() {
 #if NESSO_ENABLE_HW
@@ -23,6 +25,8 @@ bool wifi_sta_begin() {
     const esp_err_t e = esp_coex_wifi_i154_enable();
     g_coex_on = (e == ESP_OK);
     LOG_I("wifi", "esp_coex_wifi_i154_enable → %d", (int)e);
+    /* Prefer Wi-Fi for portal/OTA stability; Zigbee join temporarily overrides. */
+    esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
   }
   if (!g_sta_started) {
     WiFi.persistent(true);
@@ -39,6 +43,20 @@ bool wifi_sta_begin() {
 #endif
 }
 
+void wifi_sta_set_hold_off(bool hold_off) {
+  g_hold_off = hold_off;
+#if NESSO_ENABLE_HW
+  if (hold_off) {
+    /* Give 802.15.4 more RF time while pairing (mapped via BT prefer bucket). */
+    esp_coex_preference_set(ESP_COEX_PREFER_BT);
+    LOG_I("wifi", "hold-off ON (Zigbee join) — no auto-reconnect");
+  } else {
+    esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+    LOG_I("wifi", "hold-off OFF — Wi-Fi preferred again");
+  }
+#endif
+}
+
 void wifi_sta_poll() {
 #if NESSO_ENABLE_HW
   if (wifi_sta_connected()) {
@@ -52,9 +70,19 @@ void wifi_sta_poll() {
         LOG_W("wifi", "mDNS start mislukt");
       }
     }
-  } else if (g_mdns) {
-    MDNS.end();
-    g_mdns = false;
+  } else {
+    if (g_mdns) {
+      MDNS.end();
+      g_mdns = false;
+    }
+    /* Soft ensure — never during Zigbee join (RF thrash kills pairing). */
+    if (!g_hold_off && g_sta_started) {
+      const uint32_t now = millis();
+      if (now - g_last_ensure_ms > 8000UL) {
+        g_last_ensure_ms = now;
+        wifi_sta_ensure();
+      }
+    }
   }
 #endif
 }
@@ -67,18 +95,38 @@ bool wifi_sta_connected() {
 #endif
 }
 
+bool wifi_sta_ensure() {
+#if NESSO_ENABLE_HW
+  if (!g_sta_started) {
+    return wifi_sta_begin();
+  }
+  if (wifi_sta_connected() || g_hold_off) {
+    return wifi_sta_connected();
+  }
+  LOG_W("wifi", "ensure: esp_wifi_connect (no disconnect)");
+  esp_wifi_connect();
+  return false;
+#else
+  return false;
+#endif
+}
+
 bool wifi_sta_reconnect() {
 #if NESSO_ENABLE_HW
+  if (g_hold_off) {
+    LOG_W("wifi", "reconnect skipped (hold-off / Zigbee join)");
+    return false;
+  }
   if (!g_sta_started) {
     return wifi_sta_begin();
   }
   if (wifi_sta_connected()) {
     return true;
   }
-  LOG_W("wifi", "reconnect after radio coexistence");
-  WiFi.disconnect(false /* wifioff */, false /* eraseap */);
-  delay(50);
+  /* Prefer soft ensure; only fall back to begin() without erase. */
+  LOG_W("wifi", "reconnect soft");
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   WiFi.begin();
   return true;
 #else

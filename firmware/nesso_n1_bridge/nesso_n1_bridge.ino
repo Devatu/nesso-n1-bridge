@@ -225,8 +225,13 @@ void loop() {
       g_modbus_test_index = (uint8_t)((g_modbus_test_index + 1) % 5);
       display_show_modbus_test(g_modbus_test_index, nullptr);
     } else if (g_screen == UI_ZIGBEE) {
-      g_screen = UI_MENU;
-      display_show_menu(g_menu_index);
+      /* Tijdens join niet wegnavigeren — dat brak pairing + voelde als "terug naar menu". */
+      if (zigbee_join_is_open()) {
+        display_show_zigbee();
+      } else {
+        g_screen = UI_MENU;
+        display_show_menu(g_menu_index);
+      }
     } else if (g_screen == UI_WIFI_CONFIRM || g_screen == UI_FACTORY_CONFIRM) {
       g_screen = UI_MENU;
       display_show_menu(g_menu_index);
@@ -292,14 +297,14 @@ void loop() {
 
   if (!ble_prov_is_active(&g_ble)) {
     zigbee_coordinator_poll();
-    if (g_screen == UI_HOME && !g_service_mode && (now - g_last_home_ms) > 5000) {
-      g_last_home_ms = now;
-      if (wifi_sta_connected()) {
-        display_show_home();
-      }
+    static uint32_t last_home_draw_ms = 0;
+    static uint32_t last_zb_draw_ms = 0;
+    if (g_screen == UI_HOME && !g_service_mode && (now - last_home_draw_ms) > 5000) {
+      last_home_draw_ms = now;
+      display_show_home(); /* ook zonder Wi-Fi, zodat status klopt */
     }
-    if (g_screen == UI_ZIGBEE && (now - g_last_home_ms) > 1000) {
-      g_last_home_ms = now;
+    if (g_screen == UI_ZIGBEE && (now - last_zb_draw_ms) > 1000) {
+      last_zb_draw_ms = now;
       display_show_zigbee();
     }
   }

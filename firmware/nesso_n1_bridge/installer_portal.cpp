@@ -195,7 +195,7 @@ static void handle_heatpump_post() {
   if (g_store != nullptr) {
     storage_save_heatpump(g_store, g_hp);
   }
-  display_show_home();
+  /* Niet display_show_home() forceren — steelt Zigbee-pairingscherm weg. */
   g_server.sendHeader("Location", "/");
   g_server.send(303, "text/plain", "OK");
 }

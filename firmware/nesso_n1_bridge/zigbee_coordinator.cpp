@@ -325,6 +325,11 @@ void zigbee_coordinator_poll() {
   }
   if (g_join_until_ms != 0 && !join_open_now()) {
     LOG_I("zigbee", "join window ended");
+    g_join_until_ms = 0;
+#if NESSO_ENABLE_HW
+    wifi_sta_set_hold_off(false);
+    wifi_sta_ensure();
+#endif
     set_last_event("join gesloten");
   }
   static uint32_t last_bind_scan_ms = 0;
@@ -350,6 +355,7 @@ bool zigbee_open_join(uint8_t seconds) {
     LOG_W("zigbee", "open_join refused (running=%d paused=%d)", g_running ? 1 : 0, g_paused ? 1 : 0);
     return false;
   }
+  wifi_sta_set_hold_off(true); /* stop Wi-Fi reconnect thrash during pairing */
   Zigbee.openNetwork(seconds);
   g_join_until_ms = millis() + (uint32_t)seconds * 1000UL;
   set_last_event("join open");
@@ -367,6 +373,8 @@ void zigbee_close_join() {
   if (Zigbee.started()) {
     Zigbee.closeNetwork();
   }
+  wifi_sta_set_hold_off(false);
+  wifi_sta_ensure(); /* restore STA gently after pairing window */
 #endif
   set_last_event("join gesloten");
   LOG_I("zigbee", "join closed");
@@ -396,6 +404,7 @@ void zigbee_pause() {
   g_paused = true;
   g_join_until_ms = 0;
 #if NESSO_ENABLE_HW
+  wifi_sta_set_hold_off(false);
   if (Zigbee.started()) {
     Zigbee.closeNetwork();
     Zigbee.stop();
